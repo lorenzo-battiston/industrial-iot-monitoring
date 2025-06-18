@@ -80,6 +80,7 @@ class MQTTKafkaBridge:
     def _create_kafka_topic(self) -> bool:
         """
         Create Kafka topic using Admin API (as required by course specifications)
+        Handles TopicAlreadyExistsError properly
         """
         try:
             # Define topic with retention settings
@@ -95,29 +96,49 @@ class MQTTKafkaBridge:
             )
             
             # Create topic
-            future = self.kafka_admin.create_topics([topic])
-            
-            # Wait for creation to complete
-            for topic_name, future_result in future.items():
-                try:
-                    future_result.result()  # Block until topic is created
-                    logger.info(f"Topic '{topic_name}' created successfully")
-                except TopicAlreadyExistsError:
-                    logger.info(f"Topic '{topic_name}' already exists")
-                except Exception as e:
-                    logger.error(f"Failed to create topic '{topic_name}': {e}")
+            try:
+                future = self.kafka_admin.create_topics([topic])
+                logger.info(f"Topic '{self.kafka_config.topic_telemetry}' created successfully")
+                return True
+            except TopicAlreadyExistsError:
+                logger.info(f"Topic '{self.kafka_config.topic_telemetry}' already exists - continuing")
+                return True
+            except Exception as e:
+                # Check if it's a "topic already exists" error in the message
+                error_msg = str(e)
+                if "TopicAlreadyExistsError" in error_msg or "already exists" in error_msg:
+                    logger.info(f"Topic '{self.kafka_config.topic_telemetry}' already exists - continuing")
+                    return True
+                else:
+                    logger.error(f"Failed to create topic: {e}")
                     return False
             
-            return True
-            
         except Exception as e:
-            logger.error(f"Error in topic creation: {e}")
-            return False
+            # Final fallback - check if error message indicates topic exists
+            error_msg = str(e)
+            if "TopicAlreadyExistsError" in error_msg or "already exists" in error_msg:
+                logger.info(f"Topic '{self.kafka_config.topic_telemetry}' already exists - continuing")
+                return True
+            else:
+                logger.error(f"Error in topic creation: {e}")
+                return False
     
     def _setup_kafka_producer(self) -> bool:
         """Setup Kafka Producer with course-recommended settings"""
         try:
-            self.kafka_producer = KafkaProducer(**self.kafka_config.producer_config)
+            # Use simplified config for kafka-python-ng (removed enable_idempotence)
+            producer_config = {
+                'bootstrap_servers': self.kafka_config.bootstrap_servers.split(','),
+                'value_serializer': lambda v: v.encode('utf-8'),
+                'key_serializer': lambda k: k.encode('utf-8') if k else None,
+                'acks': 'all',  # Wait for all replicas
+                'retries': 3,
+                'retry_backoff_ms': 1000,
+                'request_timeout_ms': 30000,
+                # Removed 'enable_idempotence': True - not supported in this version
+            }
+            
+            self.kafka_producer = KafkaProducer(**producer_config)
             logger.info(f"Kafka Producer initialized - servers: {self.kafka_config.bootstrap_servers}")
             return True
         except Exception as e:
@@ -218,7 +239,7 @@ class MQTTKafkaBridge:
     def _send_to_kafka(self, machine_id: str, payload: Dict):
         """
         Send message to Kafka using Producer API
-        Following course specifications with proper poll() calls
+        Fixed: Removed poll() calls as kafka-python-ng doesn't have this method
         """
         try:
             # Prepare Kafka message
@@ -231,8 +252,8 @@ class MQTTKafkaBridge:
                 value=kafka_message
             )
             
-            # Important: call poll() after produce() for Python (course requirement)
-            self.kafka_producer.poll(timeout=0)
+            # NOTE: kafka-python-ng doesn't have poll() method on producer
+            # Messages will be sent automatically by the producer's background thread
             
             # Add callback for delivery confirmation
             def on_delivery(record_metadata=None, exception=None):
@@ -341,9 +362,8 @@ class MQTTKafkaBridge:
                     self._print_statistics()
                     stats_counter = 0
                 
-                # Flush Kafka producer periodically
-                if self.kafka_producer and not self.bridge_config.dry_run:
-                    self.kafka_producer.poll(timeout=0)
+                # NOTE: Removed poll() call as kafka-python-ng doesn't have this method
+                # The producer handles message delivery automatically in background
         
         except KeyboardInterrupt:
             logger.info("Bridge stopped by user")

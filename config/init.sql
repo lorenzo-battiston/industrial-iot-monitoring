@@ -1,125 +1,161 @@
--- IoT Monitoring Database Initialization
--- PostgreSQL database setup for processed data
+-- Industrial IoT Monitoring System
+-- PostgreSQL Database Schema Initialization
 
--- Create database extensions
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
+-- Create database and user (if needed)
+-- CREATE DATABASE iot_analytics;
+-- CREATE USER iot_user WITH PASSWORD 'iot_password';
+-- GRANT ALL PRIVILEGES ON DATABASE iot_analytics TO iot_user;
 
--- Raw telemetry table (for debugging/backup)
-CREATE TABLE IF NOT EXISTS raw_telemetry (
+-- Use the database
+\c iot_analytics;
+
+-- Grant schema privileges
+GRANT ALL ON SCHEMA public TO iot_user;
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO iot_user;
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO iot_user;
+
+-- Clear all existing data to start fresh
+DROP TABLE IF EXISTS machine_alerts CASCADE;
+DROP TABLE IF EXISTS machine_metrics_5min CASCADE; 
+DROP TABLE IF EXISTS factory_kpis CASCADE;
+
+-- Table: Machine Metrics (5-minute aggregations)
+CREATE TABLE IF NOT EXISTS machine_metrics_5min (
     id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
     machine_id VARCHAR(50) NOT NULL,
-    temperature DECIMAL(5,2),
-    speed INTEGER,
-    state VARCHAR(20),
-    alarm BOOLEAN,
-    oee DECIMAL(4,3),
+    window_start TIMESTAMP NOT NULL,
+    window_end TIMESTAMP NOT NULL,
+    avg_temperature FLOAT,
+    max_temperature FLOAT,
+    min_temperature FLOAT,
+    avg_speed FLOAT,
+    max_speed FLOAT,
+    avg_oee FLOAT,
+    min_oee FLOAT,
+    production_delta INTEGER,
+    alarm_count INTEGER,
+    running_seconds INTEGER,
+    maintenance_seconds INTEGER,
+    idle_seconds INTEGER,
+    total_readings INTEGER,
     operator_name VARCHAR(100),
     shift VARCHAR(20),
-    production_count INTEGER,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    location VARCHAR(200),
+    firmware_version VARCHAR(20),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Processed KPI table (for Grafana)
-CREATE TABLE IF NOT EXISTS machine_kpi (
+-- Table: Real-time Machine Alerts
+CREATE TABLE IF NOT EXISTS machine_alerts (
     id SERIAL PRIMARY KEY,
-    window_start TIMESTAMP WITH TIME ZONE NOT NULL,
-    window_end TIMESTAMP WITH TIME ZONE NOT NULL,
     machine_id VARCHAR(50) NOT NULL,
-    avg_temperature DECIMAL(5,2),
-    max_temperature DECIMAL(5,2),
-    min_temperature DECIMAL(5,2),
-    avg_speed INTEGER,
-    max_speed INTEGER,
-    avg_oee DECIMAL(4,3),
-    alarm_count INTEGER,
-    state_running_time INTEGER, -- seconds
-    state_idle_time INTEGER,    -- seconds
-    state_maintenance_time INTEGER, -- seconds
-    production_count_delta INTEGER,
-    uptime_percentage DECIMAL(5,2),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(window_start, machine_id)
+    alert_type VARCHAR(50) NOT NULL,
+    alert_level VARCHAR(20) NOT NULL, -- INFO, WARNING, CRITICAL
+    alert_message TEXT NOT NULL,
+    machine_state VARCHAR(20),
+    temperature FLOAT,
+    speed FLOAT,
+    oee FLOAT,
+    timestamp TIMESTAMP NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Alarms table
-CREATE TABLE IF NOT EXISTS machine_alarms (
+-- Table: Factory-wide KPIs
+CREATE TABLE IF NOT EXISTS factory_kpis (
     id SERIAL PRIMARY KEY,
-    timestamp TIMESTAMP WITH TIME ZONE NOT NULL,
-    machine_id VARCHAR(50) NOT NULL,
-    alarm_type VARCHAR(50),
-    severity VARCHAR(20) DEFAULT 'MEDIUM',
-    temperature DECIMAL(5,2),
-    speed INTEGER,
-    message TEXT,
-    acknowledged BOOLEAN DEFAULT FALSE,
-    acknowledged_by VARCHAR(100),
-    acknowledged_at TIMESTAMP WITH TIME ZONE,
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+    scope VARCHAR(50) DEFAULT 'factory_overall',
+    window_start TIMESTAMP NOT NULL,
+    window_end TIMESTAMP NOT NULL,
+    active_machines INTEGER,
+    avg_temperature_all FLOAT,
+    avg_speed_all FLOAT,
+    avg_oee_all FLOAT,
+    total_alarms INTEGER,
+    availability_percentage FLOAT,
+    total_production_estimate BIGINT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Create indexes for performance
-CREATE INDEX IF NOT EXISTS idx_raw_telemetry_timestamp ON raw_telemetry(timestamp);
-CREATE INDEX IF NOT EXISTS idx_raw_telemetry_machine ON raw_telemetry(machine_id);
-CREATE INDEX IF NOT EXISTS idx_machine_kpi_window ON machine_kpi(window_start, window_end);
-CREATE INDEX IF NOT EXISTS idx_machine_kpi_machine ON machine_kpi(machine_id);
-CREATE INDEX IF NOT EXISTS idx_machine_alarms_timestamp ON machine_alarms(timestamp);
-CREATE INDEX IF NOT EXISTS idx_machine_alarms_machine ON machine_alarms(machine_id);
-CREATE INDEX IF NOT EXISTS idx_machine_alarms_unack ON machine_alarms(acknowledged) WHERE acknowledged = FALSE;
+-- Indexes for better query performance
+CREATE INDEX IF NOT EXISTS idx_machine_metrics_machine_time 
+    ON machine_metrics_5min(machine_id, window_start DESC);
 
--- Create materialized view for dashboard summary
-CREATE MATERIALIZED VIEW IF NOT EXISTS dashboard_summary AS
+CREATE INDEX IF NOT EXISTS idx_machine_metrics_time 
+    ON machine_metrics_5min(window_start DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_machine_time 
+    ON machine_alerts(machine_id, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_alerts_level_time 
+    ON machine_alerts(alert_level, timestamp DESC);
+
+CREATE INDEX IF NOT EXISTS idx_factory_kpis_time 
+    ON factory_kpis(window_start DESC);
+
+
+-- Real-time machine status (last 5 minutes)
+CREATE OR REPLACE VIEW current_machine_status AS
+SELECT 
+    m.machine_id,
+    m.avg_temperature,
+    m.max_temperature,
+    m.avg_speed,
+    m.avg_oee,
+    m.alarm_count,
+    ROUND(CAST((m.running_seconds::FLOAT / (m.running_seconds + m.maintenance_seconds + m.idle_seconds)) * 100 AS NUMERIC), 2) as availability_pct,
+    m.operator_name,
+    m.shift,
+    m.location,
+    m.window_start,
+    m.window_end
+FROM machine_metrics_5min m
+WHERE m.window_start >= NOW() - INTERVAL '5 minutes'
+ORDER BY m.machine_id, m.window_start DESC;
+
+-- Recent alerts summary
+CREATE OR REPLACE VIEW recent_alerts_summary AS
 SELECT 
     machine_id,
-    COUNT(*) as total_records,
-    AVG(avg_temperature) as overall_avg_temp,
-    MAX(max_temperature) as highest_temp,
-    AVG(avg_oee) as overall_oee,
-    SUM(alarm_count) as total_alarms,
-    AVG(uptime_percentage) as avg_uptime,
-    MAX(window_end) as last_updated
-FROM machine_kpi 
+    alert_level,
+    COUNT(*) as alert_count,
+    MAX(timestamp) as last_alert,
+    array_agg(DISTINCT alert_type) as alert_types
+FROM machine_alerts 
+WHERE timestamp >= NOW() - INTERVAL '1 hour'
+GROUP BY machine_id, alert_level
+ORDER BY machine_id, 
+    CASE alert_level 
+        WHEN 'CRITICAL' THEN 1
+        WHEN 'WARNING' THEN 2
+        ELSE 3
+    END;
+
+-- Factory performance trends (last 24 hours)
+CREATE OR REPLACE VIEW factory_performance_trends AS
+SELECT 
+    DATE_TRUNC('hour', window_start) as hour,
+    AVG(avg_temperature_all) as avg_temp,
+    AVG(avg_speed_all) as avg_speed,
+    AVG(avg_oee_all) as avg_oee,
+    AVG(availability_percentage) as avg_availability,
+    SUM(total_alarms) as total_alarms
+FROM factory_kpis 
 WHERE window_start >= NOW() - INTERVAL '24 hours'
-GROUP BY machine_id;
+GROUP BY DATE_TRUNC('hour', window_start)
+ORDER BY hour;
 
--- Create unique index on materialized view
-CREATE UNIQUE INDEX IF NOT EXISTS idx_dashboard_summary_machine 
-ON dashboard_summary(machine_id);
+-- Grant permissions on views
+GRANT SELECT ON current_machine_status TO iot_user;
+GRANT SELECT ON recent_alerts_summary TO iot_user;
+GRANT SELECT ON factory_performance_trends TO iot_user;
 
--- Function to refresh materialized view
-CREATE OR REPLACE FUNCTION refresh_dashboard_summary()
-RETURNS void AS $$
-BEGIN
-    REFRESH MATERIALIZED VIEW CONCURRENTLY dashboard_summary;
-END;
-$$ LANGUAGE plpgsql;
+-- Sample data insertion (for testing)
+-- INSERT INTO machine_metrics_5min (machine_id, window_start, window_end, avg_temperature, avg_speed, avg_oee, alarm_count)
+-- VALUES ('MACHINE_001', NOW() - INTERVAL '5 minutes', NOW(), 45.2, 1000, 0.85, 0);
 
--- Grant permissions for application user
-DO $$
-BEGIN
-    IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'iot_app') THEN
-        CREATE ROLE iot_app WITH LOGIN PASSWORD 'iot_password';
-    END IF;
-END
-$$;
+COMMENT ON TABLE machine_metrics_5min IS 'Aggregated machine metrics calculated every 5 minutes';
+COMMENT ON TABLE machine_alerts IS 'Real-time alerts generated by Spark streaming';
+COMMENT ON TABLE factory_kpis IS 'Factory-wide KPIs and performance metrics';
 
-GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO iot_app;
-GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO iot_app;
-GRANT SELECT ON dashboard_summary TO iot_app;
-
--- Insert sample data for testing (optional)
-INSERT INTO machine_kpi (
-    window_start, window_end, machine_id, 
-    avg_temperature, max_temperature, min_temperature,
-    avg_speed, max_speed, avg_oee, alarm_count,
-    state_running_time, state_idle_time, state_maintenance_time,
-    production_count_delta, uptime_percentage
-) VALUES 
-(NOW() - INTERVAL '1 hour', NOW() - INTERVAL '59 minutes', 'MACHINE_001', 
- 45.5, 48.2, 42.1, 1050, 1100, 0.875, 0, 3540, 120, 0, 85, 98.5),
-(NOW() - INTERVAL '1 hour', NOW() - INTERVAL '59 minutes', 'MACHINE_002', 
- 52.3, 55.8, 49.7, 980, 1050, 0.792, 1, 3420, 180, 0, 78, 95.2),
-(NOW() - INTERVAL '1 hour', NOW() - INTERVAL '59 minutes', 'MACHINE_003', 
- 38.9, 42.1, 35.6, 1120, 1180, 0.923, 0, 3600, 0, 0, 92, 100.0)
-ON CONFLICT (window_start, machine_id) DO NOTHING;
+-- Success message
+SELECT 'Industrial IoT Database Schema Created Successfully!' as status;

@@ -39,7 +39,7 @@ class KafkaConfig:
             'retries': 3,
             'retry_backoff_ms': 1000,
             'request_timeout_ms': 30000,
-            'enable_idempotence': True,  # Prevent duplicates
+            # Removed 'enable_idempotence': True - not supported
         }
 
 @dataclass

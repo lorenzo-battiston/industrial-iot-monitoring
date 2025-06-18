@@ -52,17 +52,3 @@ class MachineState:
     operator_name: str
     shift: str
     production_count: int
-
-def load_config():
-    """Load configuration from YAML file"""
-    try:
-        with open('config.yaml', 'r') as f:
-            config_data = yaml.safe_load(f)
-        
-        mqtt_config = MQTTConfig(**config_data.get('mqtt', {}))
-        sim_config = SimulationConfig(**config_data.get('simulation', {}))
-        
-        return mqtt_config, sim_config
-    except FileNotFoundError:
-        # Use default values if config file not found
-        return MQTTConfig(), SimulationConfig()
