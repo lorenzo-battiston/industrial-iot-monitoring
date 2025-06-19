@@ -1,0 +1,43 @@
+# Build stage using Maven to generate the 'fat' jar for the IoT processor
+FROM maven:3.9.6-eclipse-temurin-17 AS build
+WORKDIR /app
+
+# Copy POM and download dependencies (for Docker layer caching)
+COPY pom.xml .
+RUN mvn de.qaware.maven:go-offline-maven-plugin:resolve-dependencies
+
+# Copy source code and build
+COPY src ./src
+RUN mvn clean package -DskipTests
+
+# Final stage importing JAR file into Spark base image
+FROM bitnami/spark:3.5.1
+
+# Switch to root to install additional packages
+USER root
+
+# Install PostgreSQL client tools (optional, for debugging)
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
+
+# Copy the built JAR
+WORKDIR /app
+COPY --from=build /app/target/iot-processor.jar ./iot-processor.jar
+
+# Switch back to spark user
+USER 1001
+
+# Submit the Spark application to the configurable Spark cluster
+# The cluster is created using the same bitnami/spark image for master/worker
+# Environment variables:
+# - PROCESSOR_MASTER: Spark master URL (default: spark://spark-master:7077)
+# - PROCESSOR_IMPLEMENTATION: Main class (default: it.unibz.inf.iotmonitoring.IoTProcessor)
+# - PROCESSOR_ARGS: Application arguments
+CMD spark-submit \
+    --master ${PROCESSOR_MASTER:-spark://spark-master:7077} \
+    --class ${PROCESSOR_IMPLEMENTATION:-it.unibz.inf.iotmonitoring.IoTProcessor} \
+    --conf spark.sql.shuffle.partitions=4 \
+    --conf spark.sql.streaming.checkpointLocation=/tmp/spark-checkpoint \
+    --conf spark.serializer=org.apache.spark.serializer.KryoSerializer \
+    --packages org.postgresql:postgresql:42.7.2 \
+    /app/iot-processor.jar \
+    ${PROCESSOR_ARGS}
