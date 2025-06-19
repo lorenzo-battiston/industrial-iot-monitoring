@@ -106,7 +106,7 @@ docker exec kafka kafka-console-consumer --bootstrap-server localhost:9092 --top
 
 **Terminal 5: Spark**
 ```bash
-docker-compose logs -f iot-processor | grep -A 20 -B 5 "Batch:"
+docker compose --profile spark-processing up -d
 ```
 
 ## 📊 Data Flow & Message Format
