@@ -126,22 +126,14 @@ public class IoTProcessor {
                 .filter("telemetry IS NOT NULL")
                 .select("telemetry.*")
                 .select(
-<<<<<<< HEAD
                         to_timestamp(col("timestamp")).as("timestamp"),
-=======
-                        to_timestamp(col("timestamp"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS").as("timestamp"),
->>>>>>> 7079018cc5355a38366f4decf0a3733c2a82b57e
                         col("machine_id"),
                         col("temperature"),
                         col("speed"), 
                         col("state"),
                         col("alarm"),
                         col("oee"),
-<<<<<<< HEAD
                         to_timestamp(col("last_maintenance")).as("last_maintenance"),
-=======
-                        to_timestamp(col("last_maintenance"), "yyyy-MM-dd'T'HH:mm:ss.SSSSSS").as("last_maintenance"),
->>>>>>> 7079018cc5355a38366f4decf0a3733c2a82b57e
                         col("operator_name"),
                         col("shift"),
                         col("production_count"),
