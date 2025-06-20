@@ -82,4 +82,6 @@ grafana/data/
 
 # OS generated files
 Thumbs.db
-ehthumbs.db
+ehthumbs.dbtarget/
+target/
+./processing/target/
