@@ -25,90 +25,107 @@ graph TD
 
 | Component | Technology | Purpose |
 |---|---|---|
-| **Machine Simulator** | Python | Simulates a fleet of IoT devices, each generating realistic telemetry (temperature, speed, job progress, etc.) and publishing it to MQTT. |
+| **Machine Simulator** | Python | Simulates a fleet of IoT devices with realistic telemetry, **ERROR states**, **scrap generation**, and **quality scoring**. |
 | **MQTT Broker** | Eclipse Mosquitto | A lightweight, standard messaging broker that decouples the IoT devices from the rest of the data pipeline. |
 | **MQTT-Kafka Bridge** | Python | A custom service that subscribes to all machine telemetry topics on MQTT and forwards the data into the main Kafka topic for processing. |
 | **Kafka Topic Initializer**| Confluent Platform | A dedicated container that runs on startup to ensure Kafka topics are created before any other services attempt to use them, preventing startup race conditions. |
-| **Stream Processor** | Apache Spark | A distributed data processing engine that consumes data from Kafka, performs real-time aggregations (e.g., 5-minute windows), and writes the results to the database. |
-| **Database** | PostgreSQL | A reliable relational database used to store the aggregated time-series data and machine KPIs. |
-| **Visualization** | Grafana & Kafka UI | **Grafana** provides the main real-time monitoring dashboard. **Kafka UI** allows for easy inspection of Kafka topics and messages. |
+| **Stream Processor** | Apache Spark | A distributed data processing engine that consumes data from Kafka, performs real-time aggregations with **quality metrics** and **error state tracking**. |
+| **Database** | PostgreSQL | Enhanced with **production scrap tracking**, **quality views**, and **machine state analysis** tables. |
+| **Visualization** | Grafana & Web Dashboard | **Grafana** provides analytics dashboards. **Web Dashboard** offers system management and control interface. |
+| **Web Management** ⭐ | Flask | **NEW**: Real-time system monitoring, control interface, and health management dashboard. |
+
+## 🆕 Enhanced Features
+
+### Quality & Scrap Tracking
+- **Production Scrap Monitoring**: Real-time tracking of scrap units, reasons, and categories
+- **Quality Scoring**: Dynamic quality scores based on temperature, speed, and operational conditions
+- **Scrap Rate Analysis**: Automated calculation and trending of scrap rates
+- **Root Cause Analysis**: Categorized scrap reasons (QUALITY, MACHINE_ERROR, MATERIAL, OPERATOR)
+
+### Advanced Machine States
+- **ERROR State**: New machine state with recovery logic and error tracking
+- **State Transitions**: Enhanced Markov chain with realistic error conditions
+- **Downtime Tracking**: Automated incident counting and error time measurement
+- **Health Scoring**: Combined OEE, scrap rate, and error rate into overall health metric
+
+### System Usability
+- **Web Management Dashboard**: One-click system control and monitoring
+- **Makefile Automation**: Simple commands for setup, operation, and maintenance
+- **Health Monitoring**: Automated service health checks and connectivity tests
+- **Real-time Charts**: Live system metrics and performance visualization
 
 ---
 
-## How to Run the Platform
-
-Follow these steps to set up and run the entire system on your local machine.
+## 🚀 Quick Start Guide
 
 ### Prerequisites
-*   **Docker & Docker Compose**: Ensure you have the latest versions installed. This is the only dependency required.
-*   **Git**: For cloning the repository.
-*   **Python 3.9+**: For running the local data ingestion scripts.
+*   **Docker & Docker Compose**: Latest versions installed
+*   **Git**: For cloning the repository
+*   **Python 3.9+**: For running data ingestion scripts
+*   **Make**: For using the simplified management commands
 
-### Step 1: Clone the Repository
+### Step 1: Setup
 ```bash
 git clone https://github.com/your-username/industrial-iot-monitoring.git
 cd industrial-iot-monitoring
+
+# One command setup - creates venv and installs all dependencies
+make setup
 ```
 
-### Step 2: Set Up the Python Virtual Environment
-All data ingestion scripts (simulator, bridge) are run locally. Create a virtual environment and install the required packages.
+### Step 2: Start Infrastructure
 ```bash
-# Create the virtual environment
-python3 -m venv venv
-
-# Activate it (macOS/Linux)
-source venv/bin/activate
-# On Windows, use: venv\Scripts\activate
-
-# Install all dependencies
-pip install -r data_ingestion/machine_simulator/requirements.txt
-pip install -r data_ingestion/mqtt_kafka_bridge/requirements.txt
+# Start all Docker services
+make start
 ```
+This will:
+- Start Kafka, Spark, PostgreSQL, Grafana, MQTT broker
+- Wait for services to be ready
+- Show you the next steps
 
-### Step 3: Start the Core Infrastructure
-This command will build and start all the necessary services (Kafka, Spark, Postgres, Grafana, etc.) in the correct order. The `--build` flag ensures any changes are applied.
+### Step 3: Start Data Pipeline (3 Terminals)
+
+**Terminal 1: MQTT-Kafka Bridge**
 ```bash
-# This will start all services defined in the main docker-compose file
-# and the services in the "spark-processing" profile.
-docker compose --profile spark-processing up --build -d
+make start-bridge
 ```
-The first time you run this, Docker will download all the necessary images, which may take a few minutes. The `kafka-init` container will run, create the topics, and then exit.
 
-### Step 4: Start the Data Ingestion Scripts
-With the infrastructure running, you now need to start the two Python scripts that generate and forward the data.
-
-**Important:** You will need **two separate terminal windows**. In each one, you must first activate the virtual environment. The commands must be run from the project's root directory.
-
-**Terminal 1: Start the MQTT-to-Kafka Bridge**
-This service listens for messages from the simulator and forwards them to Kafka.
-
+**Terminal 2: Machine Simulator** 
 ```bash
-# Activate the virtual environment
-source venv/bin/activate
-
-# From the project root, run the bridge module
-python -m data_ingestion.mqtt_kafka_bridge.mqtt_kafka_bridge
+make start-simulator
 ```
-You should see logs indicating it has connected to both MQTT and Kafka and is now subscribing to `factory/machines/+/telemetry`. It will appear to be idle, which is the correct behavior while it waits for messages.
 
-**Terminal 2: Start the Machine Simulator**
-This service simulates the machines and generates the data.
-
+**Terminal 3: Web Management Dashboard**
 ```bash
-# Open a NEW terminal and activate the virtual environment
-source venv/bin/activate
-
-# From the project root, run the simulator module
-python -m data_ingestion.machine_simulator.machine_simulator
+make web-dash
 ```
-You will see logs as the simulation starts and runs its iterations. The window for Terminal 1 (the bridge) should immediately become active, showing that it is receiving and forwarding messages.
 
-### Step 5: Everything is Running!
-At this point, the entire data pipeline is active. Data is flowing from the simulator to Grafana.
+### Step 4: Access Dashboards
+```bash
+# Open all dashboards in browser
+make dashboard
+```
+
+**Access Points:**
+- **Web Management Dashboard**: http://localhost:5000 ⭐ *NEW*
+- **Grafana Analytics**: http://localhost:3000 (admin/admin)
+- **Kafka UI**: http://localhost:8080
+- **Spark Master**: http://localhost:7080
+
+### Management Commands
+```bash
+make help         # Show all available commands
+make status       # Check service status
+make health       # Run health checks
+make logs         # View service logs
+make stop         # Stop all services
+make restart      # Restart system
+make clean        # Clean up completely
+```
 
 ---
 
-## 🌐 Accessing Services
+## Accessing Services
 
 You can monitor the system and view the data through these web interfaces:
 
@@ -121,7 +138,7 @@ You can monitor the system and view the data through these web interfaces:
 
 ---
 
-## ⚙️ Project Structure & Key Files
+## Project Structure & Key Files
 
 *   `docker-compose.yml`: The master file for defining and running all containerized services.
 *   `data_ingestion/`: Contains the Python scripts for the machine simulator and the MQTT-Kafka bridge.

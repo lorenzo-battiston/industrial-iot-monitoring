@@ -84,29 +84,39 @@ public class IoTProcessor {
      */
     private static Dataset<Row> readTelemetryStream(SparkSession spark, Configuration config) {
         LOGGER.info("Setting up telemetry stream from topic: {}", TELEMETRY_TOPIC);
+        // Use a more flexible schema with all fields as strings first, then cast later
         StructType telemetrySchema = DataTypes.createStructType(new StructField[]{
-            DataTypes.createStructField("timestamp", DataTypes.StringType, false),
-            DataTypes.createStructField("machine_id", DataTypes.StringType, false),
-            DataTypes.createStructField("temperature", DataTypes.DoubleType, true),
-            DataTypes.createStructField("speed", DataTypes.DoubleType, true),
+            DataTypes.createStructField("timestamp", DataTypes.StringType, true),
+            DataTypes.createStructField("machine_id", DataTypes.StringType, true),
+            DataTypes.createStructField("temperature", DataTypes.StringType, true),
+            DataTypes.createStructField("speed", DataTypes.StringType, true),
             DataTypes.createStructField("state", DataTypes.StringType, true),
-            DataTypes.createStructField("alarm", DataTypes.BooleanType, true),
-            DataTypes.createStructField("oee", DataTypes.DoubleType, true),
+            DataTypes.createStructField("alarm", DataTypes.StringType, true),
+            DataTypes.createStructField("oee", DataTypes.StringType, true),
             DataTypes.createStructField("last_maintenance", DataTypes.StringType, true),
             DataTypes.createStructField("operator_name", DataTypes.StringType, true),
             DataTypes.createStructField("shift", DataTypes.StringType, true),
-            DataTypes.createStructField("production_count", DataTypes.IntegerType, true),
+            DataTypes.createStructField("production_count", DataTypes.StringType, true),
             DataTypes.createStructField("location", DataTypes.StringType, true),
             DataTypes.createStructField("firmware_version", DataTypes.StringType, true),
-            DataTypes.createStructField("mqtt_topic", DataTypes.StringType, true),
-            DataTypes.createStructField("bridge_timestamp", DataTypes.StringType, true),
-            DataTypes.createStructField("bridge_id", DataTypes.StringType, true),
             DataTypes.createStructField("job_id", DataTypes.StringType, true),
-            DataTypes.createStructField("job_progress", DataTypes.DoubleType, true),
-            DataTypes.createStructField("target_units", DataTypes.IntegerType, true),
-            DataTypes.createStructField("produced_units", DataTypes.IntegerType, true),
+            DataTypes.createStructField("job_progress", DataTypes.StringType, true),
+            DataTypes.createStructField("target_units", DataTypes.StringType, true),
+            DataTypes.createStructField("produced_units", DataTypes.StringType, true),
             DataTypes.createStructField("order_start_time", DataTypes.StringType, true),
-            DataTypes.createStructField("elapsed_time_sec", DataTypes.IntegerType, true)
+            DataTypes.createStructField("elapsed_time_sec", DataTypes.StringType, true),
+            // Enhanced quality and scrap fields (now incremental) - ALL AS STRINGS FIRST
+            DataTypes.createStructField("good_units", DataTypes.StringType, true),
+            DataTypes.createStructField("scrap_units", DataTypes.StringType, true),
+            DataTypes.createStructField("quality_score", DataTypes.StringType, true),
+            DataTypes.createStructField("error_count", DataTypes.StringType, true),
+            DataTypes.createStructField("downtime_incidents", DataTypes.StringType, true),
+            DataTypes.createStructField("last_error_time", DataTypes.StringType, true),
+            DataTypes.createStructField("scrap_reason", DataTypes.StringType, true),
+            DataTypes.createStructField("scrap_category", DataTypes.StringType, true),
+            // Cumulative reference fields
+            DataTypes.createStructField("total_good_units", DataTypes.StringType, true),
+            DataTypes.createStructField("total_scrap_units", DataTypes.StringType, true)
         });
 
         Dataset<Row> df = spark
@@ -126,26 +136,35 @@ public class IoTProcessor {
                 .select(
                         to_timestamp(col("timestamp")).as("timestamp"),
                         col("machine_id"),
-                        col("temperature"),
-                        col("speed"), 
+                        col("temperature").cast("double").as("temperature"),
+                        col("speed").cast("double").as("speed"), 
                         col("state"),
-                        col("alarm"),
-                        col("oee"),
+                        col("alarm").cast("boolean").as("alarm"),
+                        col("oee").cast("double").as("oee"),
                         to_timestamp(col("last_maintenance")).as("last_maintenance"),
                         col("operator_name"),
                         col("shift"),
-                        col("production_count"),
+                        col("production_count").cast("int").as("production_count"),
                         col("location"),
                         col("firmware_version"),
-                        col("mqtt_topic"),
-                        col("bridge_timestamp"),
-                        col("bridge_id"),
                         col("job_id"),
-                        col("job_progress"),
-                        col("target_units"),
-                        col("produced_units"),
+                        col("job_progress").cast("double").as("job_progress"),
+                        col("target_units").cast("int").as("target_units"),
+                        col("produced_units").cast("int").as("produced_units"),
                         to_timestamp(col("order_start_time")).as("order_start_time"),
-                        col("elapsed_time_sec")
+                        col("elapsed_time_sec").cast("int").as("elapsed_time_sec"),
+                        // Quality and scrap fields (incremental) - CAST TO PROPER TYPES
+                        col("good_units").cast("int").as("good_units"),
+                        col("scrap_units").cast("int").as("scrap_units"),
+                        col("quality_score").cast("double").as("quality_score"),
+                        col("error_count").cast("int").as("error_count"),
+                        col("downtime_incidents").cast("int").as("downtime_incidents"),
+                        col("last_error_time"),
+                        col("scrap_reason"),
+                        col("scrap_category"),
+                        // Cumulative reference fields
+                        col("total_good_units").cast("int").as("total_good_units"),
+                        col("total_scrap_units").cast("int").as("total_scrap_units")
                 )
                 .filter("machine_id IS NOT NULL AND timestamp IS NOT NULL")
                 .withWatermark("timestamp", WATERMARK_DELAY);
@@ -164,7 +183,15 @@ public class IoTProcessor {
 
         LOGGER.info("Running in PRODUCTION mode - data will be written to PostgreSQL");
 
-        // Machine metrics (5-minute windows)
+        // Define JDBC properties for PostgreSQL
+        Properties connectionProperties = new Properties();
+        connectionProperties.setProperty("user", config.postgresUser);
+        connectionProperties.setProperty("password", config.postgresPassword);
+        connectionProperties.setProperty("driver", "org.postgresql.Driver");
+
+        String jdbcUrl = String.format("jdbc:postgresql://%s:5432/%s", config.postgresHost, config.postgresDb);
+
+        // Machine metrics (5-minute windows) - using incremental data
         Dataset<Row> aggregatedDf = telemetryStream
                 .groupBy(
                         window(col("timestamp"), METRICS_WINDOW),
@@ -179,9 +206,10 @@ public class IoTProcessor {
                         avg("oee").as("avg_oee"),
                         min("oee").as("min_oee"),
                         sum(when(col("alarm"), 1).otherwise(0)).as("alarm_count"),
-                        sum(when(col("state").equalTo("Running"), 1).otherwise(0)).as("running_seconds"),
-                        sum(when(col("state").equalTo("Maintenance"), 1).otherwise(0)).as("maintenance_seconds"),
-                        sum(when(col("state").equalTo("Idle"), 1).otherwise(0)).as("idle_seconds"),
+                        sum(when(col("state").equalTo("RUNNING"), 1).otherwise(0)).as("running_seconds"),
+                        sum(when(col("state").equalTo("MAINTENANCE"), 1).otherwise(0)).as("maintenance_seconds"),
+                        sum(when(col("state").equalTo("IDLE"), 1).otherwise(0)).as("idle_seconds"),
+                        sum(when(col("state").equalTo("ERROR"), 1).otherwise(0)).as("error_seconds"),
                         count("*").as("total_readings"),
                         first("operator_name").as("operator_name"),
                         first("shift").as("shift"),
@@ -192,24 +220,22 @@ public class IoTProcessor {
                         first("target_units").as("target_units"),
                         first("produced_units").as("produced_units"),
                         first("order_start_time").as("order_start_time"),
-                        first("elapsed_time_sec").as("elapsed_time_sec")
+                        first("elapsed_time_sec").as("elapsed_time_sec"),
+                        // Fixed: Use LAST (most recent) total values instead of SUM of incremental
+                        last("total_good_units").as("good_units"),
+                        last("total_scrap_units").as("scrap_units"),
+                        avg("quality_score").as("avg_quality_score"),
+                        sum("error_count").as("error_count"),
+                        sum("downtime_incidents").as("downtime_incidents")
                 );
 
-        // Define JDBC properties for PostgreSQL
-        Properties connectionProperties = new Properties();
-        connectionProperties.setProperty("user", config.postgresUser);
-        connectionProperties.setProperty("password", config.postgresPassword);
-        connectionProperties.setProperty("driver", "org.postgresql.Driver");
-
-        String jdbcUrl = String.format("jdbc:postgresql://%s:5432/%s", config.postgresHost, config.postgresDb);
-
-        // Write the aggregated data to the console and PostgreSQL
-        StreamingQuery query = aggregatedDf
+        // Write aggregated data to machine_metrics_5min
+        StreamingQuery metricsQuery = aggregatedDf
                 .writeStream()
                 .outputMode("complete")
                 .trigger(Trigger.ProcessingTime("1 minute"))
                 .foreachBatch((batchDf, batchId) -> {
-                    LOGGER.info("Writing batch {} to PostgreSQL...", batchId);
+                    LOGGER.info("Writing metrics batch {} to PostgreSQL...", batchId);
                     batchDf.select(
                             col("machine_id"),
                             col("window.start").as("window_start"),
@@ -226,6 +252,7 @@ public class IoTProcessor {
                             col("running_seconds"),
                             col("maintenance_seconds"),
                             col("idle_seconds"),
+                            col("error_seconds"),
                             col("total_readings"),
                             col("operator_name"),
                             col("shift"),
@@ -235,13 +262,57 @@ public class IoTProcessor {
                             col("job_progress"),
                             col("target_units"),
                             col("produced_units"),
+                            col("good_units"),
+                            col("scrap_units"),
+                            // Calculate scrap_rate manually since it's no longer a generated column
+                            when(col("produced_units").gt(0), 
+                                col("scrap_units").cast("double").divide(col("produced_units").cast("double"))
+                            ).otherwise(0.0).as("scrap_rate"),
                             col("order_start_time"),
-                            col("elapsed_time_sec")
+                            col("elapsed_time_sec"),
+                            col("avg_quality_score"),
+                            col("error_count").as("defect_count"),
+                            col("downtime_incidents")
+                    )
+                    .write()
+                    .mode("append")
+                    .format("jdbc")
+                    .option("url", jdbcUrl)
+                    .option("driver", "org.postgresql.Driver")
+                    .option("user", config.postgresUser)
+                    .option("password", config.postgresPassword)
+                    .option("dbtable", "machine_metrics_5min")
+                    .save();
+                })
+                .start();
+
+        // Write individual scrap events to production_scrap table
+        StreamingQuery scrapQuery = telemetryStream
+                .filter("scrap_units > 0 AND scrap_reason IS NOT NULL")
+                .writeStream()
+                .outputMode("append")
+                .trigger(Trigger.ProcessingTime("30 seconds"))
+                .foreachBatch((batchDf, batchId) -> {
+                    LOGGER.info("Writing scrap events batch {} to PostgreSQL...", batchId);
+                    batchDf.select(
+                            col("machine_id"),
+                            col("timestamp"),
+                            col("job_id"),
+                            col("scrap_units"),
+                            col("scrap_reason"),
+                            col("scrap_category"),
+                            expr("good_units + scrap_units").as("total_produced_units"),
+                            col("good_units"),
+                            // Calculate scrap_rate manually
+                            when(expr("good_units + scrap_units").gt(0),
+                                col("scrap_units").cast("double").divide(expr("good_units + scrap_units").cast("double"))
+                            ).otherwise(0.0).as("scrap_rate"),
+                            col("quality_score")
                     )
                     .write()
                     .format("jdbc")
                     .option("url", jdbcUrl)
-                    .option("dbtable", "machine_metrics_5min")
+                    .option("dbtable", "production_scrap")
                     .option("user", config.postgresUser)
                     .option("password", config.postgresPassword)
                     .option("driver", "org.postgresql.Driver")
@@ -253,7 +324,9 @@ public class IoTProcessor {
         LOGGER.info("PRODUCTION mode started. Writing data to PostgreSQL.");
         LOGGER.info("Spark UI available at: http://localhost:4040");
 
-        query.awaitTermination();
+        // Wait for both queries
+        metricsQuery.awaitTermination();
+        scrapQuery.awaitTermination();
     }
 
     private static Configuration parseArguments(String[] args) {

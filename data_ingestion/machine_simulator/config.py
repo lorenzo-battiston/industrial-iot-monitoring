@@ -45,10 +45,17 @@ class MachineState:
     machine_id: str
     temperature: float
     speed: int
-    state: str  # RUNNING, IDLE, MAINTENANCE
+    state: str  # RUNNING, IDLE, MAINTENANCE, ERROR
     alarm: bool
     oee: float
     last_maintenance: str
     operator_name: str
     shift: str
     production_count: int
+    good_units: int = 0
+    scrap_units: int = 0
+    scrap_rate: float = 0.0
+    quality_score: float = 1.0
+    error_count: int = 0
+    downtime_incidents: int = 0
+    last_error_time: str = ""

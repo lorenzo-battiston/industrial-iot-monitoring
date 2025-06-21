@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Industrial IoT Monitoring - System Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+
+        .header p {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+
+        .controls {
+            display: flex;
+            justify-content: center;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            color: white;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-start {
+            background: #4CAF50;
+        }
+
+        .btn-stop {
+            background: #f44336;
+        }
+
+        .btn-restart {
+            background: #ff9800;
+        }
+
+        .btn-health {
+            background: #2196F3;
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+        }
+
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .card h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 8px;
+        }
+
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+
+        .status-item {
+            text-align: center;
+            padding: 15px;
+            border-radius: 8px;
+            transition: all 0.3s ease;
+        }
+
+        .status-healthy {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border: 2px solid #4caf50;
+        }
+
+        .status-unhealthy {
+            background: #ffebee;
+            color: #c62828;
+            border: 2px solid #f44336;
+        }
+
+        .metric-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #eee;
+        }
+
+        .metric-item:last-child {
+            border-bottom: none;
+        }
+
+        .metric-label {
+            font-weight: 600;
+            color: #555;
+        }
+
+        .metric-value {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #667eea;
+        }
+
+        .charts-section {
+            margin-top: 30px;
+        }
+
+        .chart-container {
+            background: rgba(255, 255, 255, 0.95);
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .error {
+            color: #f44336;
+            text-align: center;
+            padding: 10px;
+            background: #ffebee;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .success {
+            color: #4caf50;
+            text-align: center;
+            padding: 10px;
+            background: #e8f5e8;
+            border-radius: 4px;
+            margin: 10px 0;
+        }
+
+        .scrap-breakdown {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+
+        .scrap-item {
+            text-align: center;
+            padding: 10px;
+            background: #f5f5f5;
+            border-radius: 6px;
+        }
+
+        @media (max-width: 768px) {
+            .controls {
+                flex-direction: column;
+                align-items: center;
+            }
+
+            .btn {
+                width: 200px;
+            }
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🏭 Industrial IoT Monitoring Platform</h1>
+            <p>System Management & Health Dashboard</p>
+        </div>
+
+        <div class="controls">
+            <button class="btn btn-start" onclick="systemControl('start')">🚀 Start System</button>
+            <button class="btn btn-stop" onclick="systemControl('stop')">🛑 Stop System</button>
+            <button class="btn btn-restart" onclick="systemControl('restart')">🔄 Restart</button>
+            <button class="btn btn-health" onclick="systemControl('health')">🏥 Health Check</button>
+        </div>
+
+        <div id="message-area"></div>
+
+        <div class="dashboard-grid">
+            <div class="card">
+                <h3>🔧 System Services</h3>
+                <div id="system-status" class="loading">Loading system status...</div>
+            </div>
+
+            <div class="card">
+                <h3>📊 Production Metrics</h3>
+                <div id="production-metrics" class="loading">Loading metrics...</div>
+            </div>
+
+            <div class="card">
+                <h3>⚠️ Quality & Scrap Analysis</h3>
+                <div id="quality-metrics" class="loading">Loading quality data...</div>
+            </div>
+
+            <div class="card">
+                <h3>🌐 Quick Links</h3>
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <a href="http://localhost:3000" target="_blank" class="btn"
+                        style="background: #ff6b35; text-decoration: none; text-align: center;">
+                        📈 Grafana Dashboard
+                    </a>
+                    <a href="http://localhost:8080" target="_blank" class="btn"
+                        style="background: #6c5ce7; text-decoration: none; text-align: center;">
+                        🔄 Kafka UI
+                    </a>
+                    <a href="http://localhost:7080" target="_blank" class="btn"
+                        style="background: #a29bfe; text-decoration: none; text-align: center;">
+                        ⚡ Spark Master
+                    </a>
+                </div>
+            </div>
+        </div>
+
+        <div class="charts-section">
+            <div class="chart-container">
+                <h3>📈 Real-time System Overview</h3>
+                <canvas id="overviewChart" width="400" height="200"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let overviewChart;
+
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function () {
+            loadSystemStatus();
+            loadSystemMetrics();
+            initializeChart();
+
+            // Auto-refresh every 30 seconds
+            setInterval(() => {
+                loadSystemStatus();
+                loadSystemMetrics();
+                updateChart();
+            }, 30000);
+        });
+
+        function showMessage(message, type = 'info') {
+            const messageArea = document.getElementById('message-area');
+            const className = type === 'error' ? 'error' : 'success';
+            messageArea.innerHTML = `<div class="${className}">${message}</div>`;
+
+            setTimeout(() => {
+                messageArea.innerHTML = '';
+            }, 5000);
+        }
+
+        function loadSystemStatus() {
+            fetch('/api/system/status')
+                .then(response => response.json())
+                .then(data => {
+                    const statusDiv = document.getElementById('system-status');
+
+                    let html = '<div class="status-grid">';
+                    for (const [service, status] of Object.entries(data.services)) {
+                        const statusClass = status.healthy ? 'status-healthy' : 'status-unhealthy';
+                        const icon = status.healthy ? '✅' : '❌';
+                        html += `
+                            <div class="status-item ${statusClass}">
+                                <div>${icon}</div>
+                                <div><strong>${service.toUpperCase()}</strong></div>
+                                <div style="font-size: 0.8em;">${status.details}</div>
+                            </div>
+                        `;
+                    }
+                    html += '</div>';
+
+                    statusDiv.innerHTML = html;
+                })
+                .catch(error => {
+                    document.getElementById('system-status').innerHTML =
+                        '<div class="error">Failed to load system status</div>';
+                });
+        }
+
+        function loadSystemMetrics() {
+            fetch('/api/system/metrics')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('production-metrics').innerHTML =
+                            `<div class="error">${data.error}</div>`;
+                        return;
+                    }
+
+                    const metricsDiv = document.getElementById('production-metrics');
+                    metricsDiv.innerHTML = `
+                        <div class="metric-item">
+                            <span class="metric-label">Active Machines</span>
+                            <span class="metric-value">${data.active_machines}</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Avg Temperature</span>
+                            <span class="metric-value">${data.avg_temperature}°C</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Avg OEE</span>
+                            <span class="metric-value">${(data.avg_oee * 100).toFixed(1)}%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Total Alarms</span>
+                            <span class="metric-value">${data.total_alarms}</span>
+                        </div>
+                    `;
+
+                    const qualityDiv = document.getElementById('quality-metrics');
+                    qualityDiv.innerHTML = `
+                        <div class="metric-item">
+                            <span class="metric-label">Avg Scrap Rate</span>
+                            <span class="metric-value">${(data.avg_scrap_rate * 100).toFixed(2)}%</span>
+                        </div>
+                        <div class="metric-item">
+                            <span class="metric-label">Error Time</span>
+                            <span class="metric-value">${data.total_error_seconds}s</span>
+                        </div>
+                        <div class="scrap-breakdown">
+                            ${data.scrap_breakdown.map(item => `
+                                <div class="scrap-item">
+                                    <div style="font-weight: bold;">${item.category}</div>
+                                    <div>${item.incidents} incidents</div>
+                                    <div>${item.total_scrap} units</div>
+                                </div>
+                            `).join('')}
+                        </div>
+                    `;
+                })
+                .catch(error => {
+                    document.getElementById('production-metrics').innerHTML =
+                        '<div class="error">Failed to load metrics</div>';
+                });
+        }
+
+        function systemControl(action) {
+            showMessage(`Executing ${action}...`, 'info');
+
+            fetch(`/api/system/control/${action}`, {
+                method: 'POST'
+            })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        showMessage(`${action} completed successfully`, 'success');
+                    } else {
+                        showMessage(`${action} failed: ${data.error}`, 'error');
+                    }
+                })
+                .catch(error => {
+                    showMessage(`${action} failed: ${error.message}`, 'error');
+                });
+        }
+
+        function initializeChart() {
+            const ctx = document.getElementById('overviewChart').getContext('2d');
+            overviewChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        {
+                            label: 'Temperature (°C)',
+                            data: [],
+                            borderColor: 'rgb(255, 99, 132)',
+                            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+                            tension: 0.1
+                        },
+                        {
+                            label: 'OEE (%)',
+                            data: [],
+                            borderColor: 'rgb(54, 162, 235)',
+                            backgroundColor: 'rgba(54, 162, 235, 0.2)',
+                            tension: 0.1
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    scales: {
+                        y: {
+                            beginAtZero: true
+                        }
+                    }
+                }
+            });
+        }
+
+        function updateChart() {
+            fetch('/api/data/recent')
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) return;
+
+                    // Process data for chart
+                    const labels = data.slice(0, 10).reverse().map(item =>
+                        new Date(item.timestamp).toLocaleTimeString()
+                    );
+                    const temperatures = data.slice(0, 10).reverse().map(item => item.temperature);
+                    const oees = data.slice(0, 10).reverse().map(item => item.oee * 100);
+
+                    overviewChart.data.labels = labels;
+                    overviewChart.data.datasets[0].data = temperatures;
+                    overviewChart.data.datasets[1].data = oees;
+                    overviewChart.update();
+                })
+                .catch(error => console.error('Chart update failed:', error));
+        }
+    </script>
+</body>
+
+</html>

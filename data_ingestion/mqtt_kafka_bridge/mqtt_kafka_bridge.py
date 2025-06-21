@@ -79,7 +79,7 @@ class MQTTKafkaBridge:
     def _on_mqtt_message(self, client, userdata, msg):
         """The callback for when a PUBLISH message is received from the server."""
         try:
-            logging.debug(f"Received message from MQTT topic {msg.topic}")
+            logging.info(f"Received message from MQTT topic {msg.topic}")
             self.message_queue.put(msg.payload)
         except Exception as e:
             logging.error(f"Error processing MQTT message: {e}")
@@ -90,6 +90,7 @@ class MQTTKafkaBridge:
         while not self.shutdown_flag.is_set():
             try:
                 payload = self.message_queue.get(timeout=1)
+                logging.info(f"Sending message to Kafka topic: {kafka_topic}")
                 self.kafka_producer.produce(kafka_topic, payload, callback=delivery_report)
                 self.kafka_producer.poll(0)
             except Empty:
