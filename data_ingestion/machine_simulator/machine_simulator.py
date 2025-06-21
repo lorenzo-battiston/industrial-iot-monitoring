@@ -18,7 +18,7 @@ import yaml
 import os
 from dataclasses import dataclass
 
-from config import MQTTConfig, SimulationConfig, MachineState
+from .config import MQTTConfig, SimulationConfig, MachineState
 
 
 # Setup logging
@@ -181,6 +181,17 @@ class MachineSimulator:
     
     def _create_telemetry_message(self, machine: MachineState) -> dict:
         """Create telemetry message in JSON format"""
+        # --- JOB SIMULATION ---
+        # Simula un job attivo per ogni macchina
+        job_id = f"JOB_{machine.machine_id}_{random.randint(1, 5)}"
+        target_units = random.choice([100, 200, 500])
+        produced_units = min(machine.production_count % (target_units + 1), target_units)
+        job_progress = produced_units / target_units if target_units > 0 else 0.0
+        # Simula un inizio job tra 0 e 2 ore fa
+        order_start_dt = datetime.now() - timedelta(seconds=random.randint(0, 7200))
+        order_start_time = order_start_dt.isoformat()
+        elapsed_time_sec = int((datetime.now() - order_start_dt).total_seconds())
+        # --- FINE JOB SIMULATION ---
         return {
             "timestamp": datetime.now().isoformat(),
             "machine_id": machine.machine_id,
@@ -194,7 +205,14 @@ class MachineSimulator:
             "shift": machine.shift,
             "production_count": machine.production_count,
             "location": f"Factory Floor A - Line {machine.machine_id[-1]}",
-            "firmware_version": "v2.1.3"
+            "firmware_version": "v2.1.3",
+            # --- JOB FIELDS ---
+            "job_id": job_id,
+            "job_progress": job_progress,
+            "target_units": target_units,
+            "produced_units": produced_units,
+            "order_start_time": order_start_time,
+            "elapsed_time_sec": elapsed_time_sec
         }
     
     def connect(self):

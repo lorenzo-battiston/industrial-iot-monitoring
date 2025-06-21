@@ -42,7 +42,13 @@ CREATE TABLE IF NOT EXISTS machine_metrics_5min (
     shift VARCHAR(20),
     location VARCHAR(200),
     firmware_version VARCHAR(20),
-    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP  -- Changed to TIMESTAMPTZ
+    created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,  -- Changed to TIMESTAMPTZ
+    job_id VARCHAR(50),
+    job_progress DOUBLE PRECISION,
+    target_units INTEGER,
+    produced_units INTEGER,
+    order_start_time TIMESTAMP,
+    elapsed_time_sec INTEGER
 );
 
 -- Table: Real-time Machine Alerts

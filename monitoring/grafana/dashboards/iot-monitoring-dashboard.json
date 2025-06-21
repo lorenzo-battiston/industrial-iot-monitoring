@@ -98,7 +98,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_temperature as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_temperature as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use a subquery to make the time range relative to the latest data, ignoring the dashboard's time range.\nWHERE window_start >= (SELECT MAX(window_start) - INTERVAL '1 hour' FROM machine_metrics_5min)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -185,7 +185,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_speed as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_speed as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use a subquery to make the time range relative to the latest data, ignoring the dashboard's time range.\nWHERE window_start >= (SELECT MAX(window_start) - INTERVAL '1 hour' FROM machine_metrics_5min)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -274,7 +274,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_oee as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_oee as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use a subquery to make the time range relative to the latest data, ignoring the dashboard's time range.\nWHERE window_start >= (SELECT MAX(window_start) - INTERVAL '1 hour' FROM machine_metrics_5min)\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -369,7 +369,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    alarm_count as \"Alarms\"\nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    alarm_count as \"Alarms\"\nFROM machine_metrics_5min \n-- Use a subquery to make the time range relative to the latest data, ignoring the dashboard's time range.\nWHERE window_start >= (SELECT MAX(window_start) - INTERVAL '1 hour' FROM machine_metrics_5min)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -522,16 +522,177 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1) as avg_temperature,\n    ROUND(avg_speed::numeric, 1) as avg_speed,\n    ROUND(avg_oee::numeric, 3) as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM machine_metrics_5min \nWHERE $__timeFilter(window_start)\nORDER BY window_start DESC, machine_id\nLIMIT 50",
+          "rawSql": "SELECT\n    -- Get the most recent record for each machine, ignoring the dashboard time range.\n    DISTINCT ON (machine_id)\n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1) as avg_temperature,\n    ROUND(avg_speed::numeric, 1) as avg_speed,\n    ROUND(avg_oee::numeric, 3) as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM \n    machine_metrics_5min\nORDER BY \n    machine_id, window_start DESC;",
           "refId": "A"
         }
       ],
       "title": "Machine Status Overview",
       "type": "table"
+    },
+    {
+      "datasource": "PostgreSQL IoT Analytics",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.4
+              },
+              {
+                "color": "yellow",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 16
+      },
+      "id": 10,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "mean"
+          ],
+          "fields": "/^job_progress$/",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "8.4.3",
+      "targets": [
+        {
+          "format": "table",
+          "group": [],
+          "metricColumn": "none",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  -- Get the most recent record for each machine\n  DISTINCT ON (machine_id) \n  machine_id,\n  job_progress\nFROM \n  machine_metrics_5min\nORDER BY \n  machine_id, window_start DESC;",
+          "refId": "A",
+          "table": "machine_metrics_5min",
+          "timeColumns": [
+            "window_start"
+          ],
+          "where": [
+            {
+              "name": "$__timeFilter",
+              "params": [],
+              "type": "macro"
+            }
+          ]
+        }
+      ],
+      "title": "Average Job Progress",
+      "type": "gauge"
+    },
+    {
+      "datasource": "PostgreSQL IoT Analytics",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "align": "auto",
+            "displayMode": "auto"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "job_progress"
+            },
+            "properties": [
+              {
+                "id": "custom.displayMode",
+                "value": "lcd-gauge"
+              },
+              {
+                "id": "unit",
+                "value": "percentunit"
+              },
+              {
+                "id": "min",
+                "value": 0
+              },
+              {
+                "id": "max",
+                "value": 1
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 18,
+        "x": 6,
+        "y": 16
+      },
+      "id": 12,
+      "options": {
+        "sortBy": []
+      },
+      "pluginVersion": "8.4.3",
+      "targets": [
+        {
+          "format": "table",
+          "group": [],
+          "metricColumn": "none",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  -- Get the most recent record for each machine\n  DISTINCT ON (machine_id) \n  machine_id,\n  job_id,\n  job_progress,\n  target_units,\n  produced_units\nFROM \n  machine_metrics_5min\nORDER BY \n  machine_id, window_start DESC;",
+          "refId": "A",
+          "table": "machine_metrics_5min",
+          "timeColumns": [
+            "window_start"
+          ],
+          "where": [
+            {
+              "name": "$__timeFilter",
+              "params": [],
+              "type": "macro"
+            }
+          ]
+        }
+      ],
+      "title": "Job Status Details",
+      "type": "table"
     }
   ],
-  "refresh": "30s",
-  "schemaVersion": 27,
+  "refresh": "5s",
+  "schemaVersion": 35,
   "style": "dark",
   "tags": [
     "iot",

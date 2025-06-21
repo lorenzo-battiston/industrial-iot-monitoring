@@ -1,0 +1,11 @@
+# Copiato da data_ingestion/mqtt-kafka-bridge/config.yaml
+mqtt:
+  broker: localhost
+  port: 1883
+  topic: factory/machines/+/telemetry
+  client_id: mqtt-kafka-bridge
+kafka:
+  bootstrap_servers: localhost:29092
+  topic: telemetry
+  group_id: mqtt-kafka-bridge-group
+  security_protocol: PLAINTEXT 

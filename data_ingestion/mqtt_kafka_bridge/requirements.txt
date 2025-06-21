@@ -1,0 +1,4 @@
+# Copiato da data_ingestion/mqtt-kafka-bridge/requirements.txt
+paho-mqtt
+confluent-kafka
+PyYAML 
