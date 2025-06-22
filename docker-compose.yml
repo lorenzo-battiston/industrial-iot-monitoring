@@ -187,6 +187,27 @@ services:
     networks:
       - iot-network
 
+  # Web Dashboard for operators
+  web-dashboard:
+    build:
+      context: ./web_dashboard
+      dockerfile: Dockerfile
+    container_name: web-dashboard
+    depends_on:
+      - postgres
+      - kafka
+    ports:
+      - "5001:5001"
+    environment:
+      # These mirror the defaults baked into the Dockerfile but allow override from compose if required
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_DATABASE: iot_analytics
+      DB_USER: iot_user
+      DB_PASSWORD: iot_password
+    networks:
+      - iot-network
+
 # Networks
 networks:
   iot-network:

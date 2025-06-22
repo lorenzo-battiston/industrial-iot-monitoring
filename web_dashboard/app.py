@@ -11,16 +11,18 @@ import time
 import psycopg2
 from datetime import datetime, timedelta
 import os
+import socket
+import requests
 
 app = Flask(__name__)
 
 # Database configuration
 DB_CONFIG = {
-    'host': 'localhost',
-    'port': 5433,
-    'database': 'iot_analytics',
-    'user': 'iot_user',
-    'password': 'iot_password'
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 5433)),
+    'database': os.getenv('DB_DATABASE', 'iot_analytics'),
+    'user': os.getenv('DB_USER', 'iot_user'),
+    'password': os.getenv('DB_PASSWORD', 'iot_password')
 }
 
 def execute_command(command):
@@ -199,45 +201,56 @@ def recent_data():
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
+def _tcp_ping(host: str, port: int, timeout: float = 3.0):
+    """Return True if a TCP connection can be established."""
+    try:
+        with socket.create_connection((host, port), timeout=timeout):
+            return True
+    except OSError:
+        return False
+
 def check_kafka_health():
-    """Check Kafka health"""
-    result = execute_command('docker exec kafka kafka-topics --bootstrap-server localhost:9092 --list')
+    """Basic Kafka broker reachability check (TCP)."""
+    healthy = _tcp_ping(os.getenv('KAFKA_HOST', 'kafka'), int(os.getenv('KAFKA_PORT', 9092)))
     return {
-        'healthy': result['success'] and 'telemetry' in result['output'],
-        'details': 'Topics available' if result['success'] else result['error']
+        'healthy': healthy,
+        'details': 'Broker reachable' if healthy else 'TCP connection failed'
     }
 
 def check_postgres_health():
-    """Check PostgreSQL health"""
-    result = execute_command('docker exec postgres pg_isready -U iot_user')
-    return {
-        'healthy': result['success'],
-        'details': 'Ready' if result['success'] else result['error']
-    }
+    """Attempt to open a short DB connection."""
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        conn.close()
+        return {'healthy': True, 'details': 'Ready'}
+    except Exception as exc:
+        return {'healthy': False, 'details': str(exc)}
 
 def check_mqtt_health():
-    """Check MQTT health"""
-    result = execute_command('docker exec mqtt-broker mosquitto_pub -h localhost -t test -m "health_check"')
+    """Basic MQTT broker reachability check (TCP)."""
+    healthy = _tcp_ping(os.getenv('MQTT_HOST', 'mosquitto'), int(os.getenv('MQTT_PORT', 1883)))
     return {
-        'healthy': result['success'],
-        'details': 'Broker responsive' if result['success'] else result['error']
+        'healthy': healthy,
+        'details': 'Broker reachable' if healthy else 'TCP connection failed'
     }
 
 def check_grafana_health():
-    """Check Grafana health"""
-    result = execute_command('curl -s http://localhost:3000/api/health')
-    return {
-        'healthy': result['success'],
-        'details': 'API responsive' if result['success'] else result['error']
-    }
+    """HTTP GET /api/health on Grafana service."""
+    url = os.getenv('GRAFANA_URL', 'http://grafana:3000/api/health')
+    try:
+        r = requests.get(url, timeout=3)
+        return {'healthy': r.status_code == 200, 'details': f'Status {r.status_code}'}
+    except Exception as exc:
+        return {'healthy': False, 'details': str(exc)}
 
 def check_spark_health():
-    """Check Spark health"""
-    result = execute_command('curl -s http://localhost:7080')
-    return {
-        'healthy': result['success'],
-        'details': 'Master UI accessible' if result['success'] else result['error']
-    }
+    """HTTP HEAD on Spark master UI."""
+    url = os.getenv('SPARK_MASTER_URL', 'http://spark-master:8080')
+    try:
+        r = requests.head(url, timeout=3)
+        return {'healthy': r.status_code == 200, 'details': f'Status {r.status_code}'}
+    except Exception as exc:
+        return {'healthy': False, 'details': str(exc)}
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001) 
