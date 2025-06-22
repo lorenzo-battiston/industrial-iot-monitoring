@@ -30,11 +30,11 @@ public class IoTProcessor {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(IoTProcessor.class);
 
-    // Configuration defaults
+    // Configuration defaults (can be overridden via environment variables)
     private static final String DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092";
     private static final String DEFAULT_POSTGRES_HOST = "localhost";
     private static final String DEFAULT_POSTGRES_DB = "iot_analytics";
-    private static final String DEFAULT_POSTGRES_USER = "iot_user" ;
+    private static final String DEFAULT_POSTGRES_USER = "iot_user";
     private static final String DEFAULT_POSTGRES_PASSWORD = "iot_password";
 
     // Kafka topics

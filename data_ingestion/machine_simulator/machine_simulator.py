@@ -14,7 +14,7 @@ from typing import Dict, List
 from dataclasses import asdict, dataclass
 import paho.mqtt.client as mqtt
 
-from .config import MQTTConfig, SimulationConfig, MachineState
+from .config import MQTTConfig, SimulationConfig, MachineState, JobState
 
 
 # Setup logging
@@ -75,10 +75,16 @@ class MachineSimulator:
                 quality_score=random.uniform(0.8, 0.95),
                 error_count=0,
                 downtime_incidents=0,
-                last_error_time=""
+                last_error_time="",
+                current_job=None,
+                completed_jobs_today=0
             )
         
         logger.info(f"Initialized {len(self.machines)} machines")
+        
+        # Initialize first job for each machine
+        for machine_id in self.machines:
+            self.machines[machine_id] = self._assign_new_job(self.machines[machine_id])
     
     def _setup_mqtt(self):
         """Setup MQTT client connection"""
@@ -112,8 +118,83 @@ class MachineSimulator:
         self.mqtt_client.on_publish = on_publish
         self.mqtt_client.on_log = on_log
     
+    def _assign_new_job(self, machine: MachineState) -> MachineState:
+        """Assign a new production job to a machine"""
+        # Generate job duration between configured min and max
+        duration_minutes = random.randint(
+            self.sim_config.job_duration_minutes_min,
+            self.sim_config.job_duration_minutes_max
+        )
+        
+        # Calculate target units based on duration and production rate
+        target_units = duration_minutes * self.sim_config.job_units_per_minute
+        
+        # Generate unique job ID with timestamp to avoid conflicts
+        job_number = machine.completed_jobs_today + 1
+        job_id = f"JOB_{machine.machine_id}_{datetime.now().strftime('%Y%m%d')}_{job_number:02d}"
+        
+        start_time = datetime.now()
+        estimated_end_time = start_time + timedelta(minutes=duration_minutes)
+        
+        # Create new job
+        new_job = JobState(
+            job_id=job_id,
+            target_units=target_units,
+            produced_units=0,
+            start_time=start_time,
+            estimated_end_time=estimated_end_time
+        )
+        
+        machine.current_job = new_job
+        logger.info(f"Assigned new job {job_id} to {machine.machine_id}: {target_units} units, {duration_minutes} min")
+        
+        return machine
+    
+    def _update_job_progress(self, machine: MachineState) -> MachineState:
+        """Update production progress for current job"""
+        if not machine.current_job:
+            return machine
+            
+        # Only produce when machine is running
+        if machine.state == "RUNNING":
+            # Calculate production for this cycle
+            # Use configured production rate with some variation
+            base_rate = self.sim_config.job_units_per_minute / (60 / self.sim_config.interval_seconds)
+            production_this_cycle = max(0, int(base_rate * random.uniform(0.8, 1.2)))
+            
+            # Update job progress
+            machine.current_job.produced_units += production_this_cycle
+            machine.production_count += production_this_cycle
+            
+            # Update cycle counters for scrap tracking
+            cycle_good = int(production_this_cycle * (1 - machine.scrap_rate))
+            cycle_scrap = production_this_cycle - cycle_good
+            
+            machine.good_units += cycle_good
+            machine.scrap_units += cycle_scrap
+            
+            # Store cycle values for telemetry
+            machine._cycle_good_units = cycle_good
+            machine._cycle_scrap_units = cycle_scrap
+        else:
+            # No production when not running
+            machine._cycle_good_units = 0
+            machine._cycle_scrap_units = 0
+        
+        # Check if job is completed
+        if machine.current_job.produced_units >= machine.current_job.target_units:
+            machine.current_job.is_completed = True
+            machine.completed_jobs_today += 1
+            logger.info(f"Job {machine.current_job.job_id} completed! Starting new job...")
+            machine = self._assign_new_job(machine)
+        
+        return machine
+    
     def _update_machine_state(self, machine: MachineState) -> MachineState:
         """Update machine state with realistic variations"""
+        
+        # First update job progress
+        machine = self._update_job_progress(machine)
         
         # Temperature simulation (with some correlation to machine state)
         if machine.state == "RUNNING":
@@ -257,7 +338,7 @@ class MachineSimulator:
         setattr(machine, '_cycle_good_units', cycle_good_units)
         setattr(machine, '_cycle_scrap_units', cycle_scrap_units)
         
-        # Update machine state
+        # Update machine state - preserve job information
         new_machine = MachineState(
             machine_id=machine.machine_id,
             temperature=round(new_temp, 2),
@@ -275,7 +356,9 @@ class MachineSimulator:
             quality_score=round(new_quality_score, 3),
             error_count=new_error_count,
             downtime_incidents=new_downtime_incidents,
-            last_error_time=new_last_error_time
+            last_error_time=new_last_error_time,
+            current_job=machine.current_job,  # Preserve current job
+            completed_jobs_today=machine.completed_jobs_today  # Preserve job counter
         )
         
         # Set incremental values on the new machine state for telemetry
@@ -291,26 +374,23 @@ class MachineSimulator:
         cycle_good_units = getattr(machine, '_cycle_good_units', 0)
         cycle_scrap_units = getattr(machine, '_cycle_scrap_units', 0)
         
-        # REAL Manufacturing Job simulation 
-        # In real manufacturing: machines work on specific production orders/batches
-        
-        # Simulate shift-based production (8-hour shifts)
-        shift_targets = {
-            "Morning": random.choice([400, 500, 600]),   # 8-hour shift target
-            "Afternoon": random.choice([350, 450, 550]), # Different shift performance  
-            "Night": random.choice([300, 400, 500])      # Night shift typically lower
-        }
-        
-        target_units = shift_targets.get(machine.shift, 400)
-        job_id = f"BATCH_{machine.machine_id}_{random.randint(1000, 9999)}"
-        
-        # Current shift progress: reset daily, track shift completion
-        # In reality this would reset at shift change, here we simulate with modulo
-        current_shift_production = machine.production_count % target_units
-        produced_units = min(current_shift_production, target_units)  # Never exceed shift target
-        
-        # Job progress: how much of current shift/batch is completed
-        job_progress = produced_units / target_units if target_units > 0 else 0.0
+        # Use current job data instead of random generation
+        if machine.current_job:
+            job_id = machine.current_job.job_id
+            target_units = machine.current_job.target_units
+            produced_units = machine.current_job.produced_units
+            job_progress = machine.current_job.get_progress_percentage() / 100.0
+            elapsed_time_sec = machine.current_job.get_elapsed_minutes() * 60
+            order_start_time = machine.current_job.start_time.isoformat()
+        else:
+            # This should not happen after job assignment
+            logger.warning(f"Machine {machine.machine_id} has no current_job")
+            job_id = f"NO_JOB_{machine.machine_id}"
+            target_units = 0
+            produced_units = 0
+            job_progress = 0.0
+            elapsed_time_sec = 0
+            order_start_time = datetime.now().isoformat()
         
         # Generate scrap reason and category only if there was scrap in this cycle
         scrap_reason = None
@@ -353,8 +433,8 @@ class MachineSimulator:
             "job_progress": job_progress,
             "target_units": target_units,
             "produced_units": produced_units,
-            "order_start_time": (datetime.now() - timedelta(seconds=random.randint(1800, 7200))).isoformat(),
-            "elapsed_time_sec": random.randint(1800, 7200),
+            "order_start_time": order_start_time,
+            "elapsed_time_sec": elapsed_time_sec,
             # --- ENHANCED QUALITY & SCRAP FIELDS (INCREMENTAL) ---
             "good_units": cycle_good_units,  # Changed to incremental
             "scrap_units": cycle_scrap_units,  # Changed to incremental  
@@ -423,18 +503,17 @@ class MachineSimulator:
                 logger.info(f"Simulation iteration {iteration}")
                 
                 for machine_id, machine in self.machines.items():
-                    # Update machine state
+                    # Update machine state and persist changes
                     updated_machine = self._update_machine_state(machine)
                     self.machines[machine_id] = updated_machine
                     
-                    # Create telemetry message
+                    # Create telemetry message using updated machine
                     telemetry = self._create_telemetry_message(updated_machine)
                     message = json.dumps(telemetry, indent=2 if dry_run else None)
                     
                     if dry_run:
-                        # Print to stdout for testing
-                        print(f"\n--- {machine_id} ---")
-                        print(message)
+                        # Log to stdout for testing
+                        logger.info(f"DRY RUN - {machine_id}: {json.dumps(telemetry, indent=2)}")
                     else:
                         # Publish to MQTT
                         topic = f"{self.mqtt_config.topic_prefix}/{machine_id}/telemetry"

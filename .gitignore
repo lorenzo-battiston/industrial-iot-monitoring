@@ -45,6 +45,7 @@ venv.bak/
 
 # Docker
 .docker/
+.dockerignore
 
 # Logs
 *.log
@@ -55,8 +56,9 @@ logs/
 *.sqlite3
 
 # Temporary files
+temp_*
 *.tmp
-*.temp
+FETCH_HEAD
 
 # Backup files
 *.bak
@@ -85,3 +87,9 @@ Thumbs.db
 ehthumbs.dbtarget/
 target/
 ./processing/target/
+
+# Kafka data
+/kafka-data/
+
+# Spark checkpoints
+/spark-checkpoints/
