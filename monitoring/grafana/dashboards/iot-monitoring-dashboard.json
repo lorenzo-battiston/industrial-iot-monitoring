@@ -749,8 +749,8 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 6,
-        "w": 24,
+        "h": 4,
+        "w": 12,
         "x": 0,
         "y": 24
       },
@@ -774,11 +774,116 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "-- Daily Production Overview: Shows job completion statistics\n-- Requested by professor: \"15 out of 25 jobs completed – 60%\"\nWITH daily_job_stats AS (\n  SELECT \n    -- Count total jobs started today\n    COUNT(DISTINCT m.job_id) as total_jobs_started,\n    -- Count completed jobs (>= 100% progress)\n    COUNT(DISTINCT CASE WHEN m.job_progress >= 1.0 THEN m.job_id END) as completed_jobs,\n    -- Calculate completion percentage\n    ROUND(\n      CAST(\n        COUNT(DISTINCT CASE WHEN m.job_progress >= 1.0 THEN m.job_id END) * 100.0 / \n        NULLIF(COUNT(DISTINCT m.job_id), 0) \n      AS NUMERIC), 1\n    ) as completion_percentage,\n    -- Total units produced today\n    SUM(DISTINCT m.produced_units) as total_units_produced,\n    -- Total target units for today\n    SUM(DISTINCT m.target_units) as total_target_units,\n    -- Average daily efficiency\n    ROUND(\n      CAST(\n        SUM(DISTINCT m.produced_units) * 100.0 / \n        NULLIF(SUM(DISTINCT m.target_units), 0)\n      AS NUMERIC), 1\n    ) as production_efficiency\n  FROM machine_metrics_5min m\n  WHERE \n    -- Only persistent jobs from today\n    m.job_id LIKE 'JOB_%'\n    AND DATE(m.window_start) = CURRENT_DATE\n)\nSELECT \n  'Daily Production Overview' as metric,\n  completion_percentage as value\nFROM daily_job_stats\nUNION ALL\nSELECT \n  'Production Efficiency' as metric,\n  production_efficiency as value\nFROM daily_job_stats;",
+          "rawSql": "-- Product Completion Overview: Shows finished products based on bottleneck principle\n-- Products completed = minimum units produced across all machines\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\nproduct_metrics AS (\n  SELECT \n    -- Product completion based on bottleneck (minimum across machines)\n    MIN(produced_units) as completed_products,\n    ROUND(AVG(target_units)) as avg_target,\n    ROUND(CAST(MIN(produced_units) * 100.0 / AVG(target_units) AS NUMERIC), 1) as product_completion_rate\n  FROM current_jobs\n)\nSELECT \n  'Product Completion Rate' as metric,\n  product_completion_rate as value\nFROM product_metrics;",
           "refId": "A"
         }
       ],
-      "title": "Daily Production Overview",
+      "title": "Product Completion Overview",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {},
+            "indexByName": {},
+            "renameByName": {
+              "metric": "Metric",
+              "value": "Percentage"
+            }
+          }
+        }
+      ],
+      "type": "bargauge"
+    },
+    {
+      "datasource": "PostgreSQL IoT Analytics",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 0,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "vis": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 40
+              },
+              {
+                "color": "green",
+                "value": 80
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "id": 17,
+      "options": {
+        "displayMode": "basic",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "values": false,
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "showUnfilled": true
+      },
+      "pluginVersion": "8.4.3",
+      "targets": [
+        {
+          "format": "table",
+          "group": [],
+          "metricColumn": "none",
+          "rawQuery": true,
+          "rawSql": "-- Pipeline Efficiency Overview: Shows overall production pipeline metrics\n-- Fixed logic to show realistic percentages (0-100%)\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\npipeline_metrics AS (\n  SELECT \n    -- Pipeline efficiency: total units produced vs total target\n    ROUND(CAST(SUM(produced_units) * 100.0 / SUM(target_units) AS NUMERIC), 1) as pipeline_efficiency,\n    -- Average machine utilization\n    ROUND(CAST(AVG(job_progress * 100) AS NUMERIC), 1) as avg_machine_utilization\n  FROM current_jobs\n)\nSELECT \n  'Pipeline Efficiency' as metric,\n  pipeline_efficiency as value\nFROM pipeline_metrics\nUNION ALL\nSELECT \n  'Average Machine Utilization' as metric,\n  avg_machine_utilization as value\nFROM pipeline_metrics;",
+          "refId": "A"
+        }
+      ],
+      "title": "Pipeline Efficiency Overview",
       "transformations": [
         {
           "id": "organize",
@@ -847,7 +952,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 28
       },
       "id": 16,
       "options": {
@@ -860,11 +965,11 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "-- Daily Production Summary Table\n-- Shows the exact format requested by professor\nWITH daily_summary AS (\n  SELECT \n    COUNT(DISTINCT m.job_id) as total_jobs,\n    COUNT(DISTINCT CASE WHEN m.job_progress >= 1.0 THEN m.job_id END) as completed_jobs,\n    ROUND(\n      CAST(\n        COUNT(DISTINCT CASE WHEN m.job_progress >= 1.0 THEN m.job_id END) * 100.0 / \n        NULLIF(COUNT(DISTINCT m.job_id), 0) \n      AS NUMERIC), 1\n    ) as completion_percentage,\n    SUM(DISTINCT m.produced_units) as total_produced,\n    SUM(DISTINCT m.target_units) as total_target\n  FROM machine_metrics_5min m\n  WHERE \n    m.job_id LIKE 'JOB_%'\n    AND DATE(m.window_start) = CURRENT_DATE\n)\nSELECT \n  CURRENT_DATE as \"Production Date\",\n  completed_jobs || ' out of ' || total_jobs || ' jobs completed – ' || completion_percentage || '%' as \"Completion Status\",\n  total_produced || ' / ' || total_target || ' units' as \"Production Progress\",\n  CASE \n    WHEN completion_percentage >= 90 THEN '🟢 Excellent'\n    WHEN completion_percentage >= 70 THEN '🟡 Good'\n    WHEN completion_percentage >= 50 THEN '🟠 Fair'\n    ELSE '🔴 Needs Attention'\n  END as \"Performance Rating\"\nFROM daily_summary;",
+          "rawSql": "-- Production Summary: 3-Level Dashboard with corrected logic\n-- Shows Product, Pipeline, and Machine level metrics\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\nthree_level_metrics AS (\n  SELECT \n    -- Product Level: Based on bottleneck principle (minimum across machines)\n    MIN(produced_units) as completed_products,\n    ROUND(AVG(target_units)) as avg_target_per_machine,\n    -- Pipeline Level: Overall efficiency\n    ROUND(CAST(SUM(produced_units) * 100.0 / SUM(target_units) AS NUMERIC), 1) as pipeline_efficiency,\n    SUM(produced_units) as total_produced,\n    SUM(target_units) as total_target,\n    -- Machine Level: Average progress\n    ROUND(CAST(AVG(job_progress * 100) AS NUMERIC), 1) as avg_machine_progress,\n    COUNT(*) as active_machines\n  FROM current_jobs\n)\nSELECT \n  'Product Level' as \"Level\",\n  completed_products || ' products completed' as \"Status\",\n  ROUND(CAST(completed_products * 100.0 / avg_target_per_machine AS NUMERIC), 1) || '%' as \"Progress\",\n  CASE \n    WHEN completed_products * 100.0 / avg_target_per_machine >= 80 THEN 'Excellent'\n    WHEN completed_products * 100.0 / avg_target_per_machine >= 60 THEN 'Good'  \n    WHEN completed_products * 100.0 / avg_target_per_machine >= 40 THEN 'Fair'\n    ELSE 'Needs Attention'\n  END as \"Rating\"\nFROM three_level_metrics\nUNION ALL\nSELECT \n  'Pipeline Level',\n  total_produced || '/' || total_target || ' units processed',\n  pipeline_efficiency || '%',\n  CASE \n    WHEN pipeline_efficiency >= 85 THEN 'Excellent'\n    WHEN pipeline_efficiency >= 70 THEN 'Good'\n    WHEN pipeline_efficiency >= 55 THEN 'Fair'  \n    ELSE 'Needs Attention'\n  END\nFROM three_level_metrics\nUNION ALL\nSELECT \n  'Machine Level',\n  active_machines || ' machines active',\n  avg_machine_progress || '%',\n  CASE \n    WHEN avg_machine_progress >= 90 THEN 'Excellent'\n    WHEN avg_machine_progress >= 75 THEN 'Good'\n    WHEN avg_machine_progress >= 60 THEN 'Fair'\n    ELSE 'Needs Attention'\n  END\nFROM three_level_metrics;",
           "refId": "A"
         }
       ],
-      "title": "Daily Production Summary",
+      "title": "Production Performance Summary (3-Level Dashboard)",
       "type": "table"
     },
     {
@@ -928,7 +1033,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 34
+        "y": 32
       },
       "id": 13,
       "options": {
@@ -1053,7 +1158,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 34
+        "y": 32
       },
       "id": 14,
       "options": {
