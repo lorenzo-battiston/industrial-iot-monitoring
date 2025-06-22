@@ -1052,7 +1052,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    AVG(scrap_rate) as value, \n    machine_id as metric \nFROM production_scrap \nWHERE timestamp >= NOW() - INTERVAL '4 hours'\nGROUP BY DATE_TRUNC('minute', timestamp), machine_id\nORDER BY time",
+          "rawSql": "SELECT \n    window_start as time, \n    scrap_rate as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -1177,7 +1177,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\",\n    COUNT(*) as \"Defects\"\nFROM production_scrap \nWHERE timestamp >= NOW() - INTERVAL '4 hours'\nGROUP BY DATE_TRUNC('minute', timestamp)\nORDER BY time",
+          "rawSql": "SELECT \n    window_start as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\",\n    SUM(defect_count) as \"Defects\"\nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nGROUP BY window_start\nORDER BY window_start",
           "refId": "A"
         }
       ],
