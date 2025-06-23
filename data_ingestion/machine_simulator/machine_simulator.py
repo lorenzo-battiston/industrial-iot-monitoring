@@ -282,48 +282,28 @@ class MachineSimulator:
         
         new_oee = max(0.0, min(1.0, machine.oee + oee_change))
         
-        # FIXED: Production tracking - now incremental per time period
-        new_production_count = machine.production_count
-        new_good_units = machine.good_units
-        new_scrap_units = machine.scrap_units
-        new_quality_score = machine.quality_score
-        new_error_count = machine.error_count
-        new_downtime_incidents = machine.downtime_incidents
-        
-        # Initialize incremental values for this cycle
-        cycle_good_units = 0
-        cycle_scrap_units = 0
-        
-        if new_state == "RUNNING" and not new_alarm:
-            # Simulate production based on speed (incremental for this cycle)
-            production_increment = max(0, int(new_speed / 200) + random.randint(-1, 2))
-            new_production_count += production_increment
-            
-            # Quality simulation based on temperature and state transitions
-            temp_quality_factor = 1.0 - min(0.3, max(0, (new_temp - 50) / 100))  # Quality degrades with high temp
-            speed_quality_factor = 1.0 - min(0.2, max(0, abs(new_speed - self.sim_config.speed_optimal) / 1000))
-            base_quality = temp_quality_factor * speed_quality_factor
-            
-            # Generate scrap based on quality factors (for this cycle only)
-            if production_increment > 0:
-                scrap_probability = (1 - base_quality) * 0.2  # Up to 20% scrap rate in worst conditions
-                for _ in range(production_increment):
-                    if random.random() < scrap_probability:
-                        cycle_scrap_units += 1
-                        new_scrap_units += 1
-                    else:
-                        cycle_good_units += 1
-                        new_good_units += 1
-                
-                # Update quality score (exponential moving average)
-                current_batch_quality = 1 - (scrap_probability * random.uniform(0.5, 1.5))
-                new_quality_score = 0.8 * machine.quality_score + 0.2 * max(0, min(1, current_batch_quality))
+        # Use incremental production values calculated in _update_job_progress
+        cycle_good_units = getattr(machine, '_cycle_good_units', 0)
+        cycle_scrap_units = getattr(machine, '_cycle_scrap_units', 0)
+
+        if (cycle_good_units + cycle_scrap_units) > 0:
+            # Estimate current batch quality from real produced pieces
+            scrap_probability = cycle_scrap_units / (cycle_good_units + cycle_scrap_units)
+            current_batch_quality = 1 - scrap_probability
+            # Exponential moving average to smooth quality trend
+            new_quality_score = 0.8 * machine.quality_score + 0.2 * current_batch_quality
+            # Update cumulative counters
+            new_good_units = machine.good_units + cycle_good_units
+            new_scrap_units = machine.scrap_units + cycle_scrap_units
         
         elif new_state == "ERROR":
-            new_error_count += 1
+            new_error_count = machine.error_count + 1
             if machine.state != "ERROR":  # New error occurrence
-                new_downtime_incidents += 1
-                new_quality_score *= 0.95  # Quality degrades during errors
+                new_downtime_incidents = machine.downtime_incidents + 1
+                new_quality_score = 0.95 * machine.quality_score  # Quality degrades during errors
+            else:
+                new_error_count = machine.error_count
+                new_downtime_incidents = machine.downtime_incidents
         
         # Calculate scrap rate
         total_units = new_good_units + new_scrap_units
@@ -333,10 +313,6 @@ class MachineSimulator:
         new_last_error_time = machine.last_error_time
         if new_state == "ERROR" and machine.state != "ERROR":
             new_last_error_time = datetime.now().isoformat()
-        
-        # Store incremental values for telemetry message
-        setattr(machine, '_cycle_good_units', cycle_good_units)
-        setattr(machine, '_cycle_scrap_units', cycle_scrap_units)
         
         # Update machine state - preserve job information
         new_machine = MachineState(
@@ -349,7 +325,7 @@ class MachineSimulator:
             last_maintenance=machine.last_maintenance,
             operator_name=machine.operator_name,
             shift=machine.shift,
-            production_count=new_production_count,
+            production_count=machine.production_count,
             good_units=new_good_units,
             scrap_units=new_scrap_units,
             scrap_rate=round(new_scrap_rate, 4),
