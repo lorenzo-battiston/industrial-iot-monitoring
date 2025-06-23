@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List
 from dataclasses import asdict, dataclass
 import paho.mqtt.client as mqtt
+from zoneinfo import ZoneInfo  # Python 3.9+
 
 from .config import MQTTConfig, SimulationConfig, MachineState
 
@@ -286,6 +287,8 @@ class MachineSimulator:
     
     def _create_telemetry_message(self, machine: MachineState) -> dict:
         """Create a telemetry message from machine state"""
+        italy_tz = ZoneInfo("Europe/Rome")
+        now_italy = datetime.now(italy_tz)
         
         # Get incremental production values for this cycle
         cycle_good_units = getattr(machine, '_cycle_good_units', 0)
@@ -335,7 +338,7 @@ class MachineSimulator:
             scrap_category = scrap_categories.get(scrap_reason, "UNKNOWN")
         
         return {
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": now_italy.isoformat(),
             "machine_id": machine.machine_id,
             "temperature": machine.temperature,
             "speed": machine.speed,
@@ -353,7 +356,7 @@ class MachineSimulator:
             "job_progress": job_progress,
             "target_units": target_units,
             "produced_units": produced_units,
-            "order_start_time": (datetime.now() - timedelta(seconds=random.randint(1800, 7200))).isoformat(),
+            "order_start_time": (now_italy - timedelta(seconds=random.randint(1800, 7200))).isoformat(),
             "elapsed_time_sec": random.randint(1800, 7200),
             # --- ENHANCED QUALITY & SCRAP FIELDS (INCREMENTAL) ---
             "good_units": cycle_good_units,  # Changed to incremental
