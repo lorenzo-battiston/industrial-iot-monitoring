@@ -69,42 +69,62 @@ for p in panels:
             "SELECT 'Completion Rate', ROUND((products_completed*100.0/NULLIF(products_started,0))::numeric,1) FROM agg;"
         )
 
-# convert panel 17 to table
+# Remove redundant panel id 15 if present
+panels = [p for p in panels if p.get("id") != 15]
+
+# Patch panel 17 (Pipeline KPI)
 for p in panels:
     if p.get("id") == 17:
         p["type"] = "table"
-        p["pluginVersion"] = "8.4.3"
-        if "defaults" in p.get("fieldConfig", {}):
-            if "unit" in p["fieldConfig"]["defaults"]:
-                del p["fieldConfig"]["defaults"]["unit"]
         p["title"] = "PRODUCTION PIPELINE STATUS - Overall Efficiency"
-        p["targets"][0]["rawSql"] = (
+
+        target = p["targets"][0]
+        target["format"] = "table"
+        # add explicit timeColumn to bypass Grafana time filter
+        target["timeColumn"] = "time"
+        target["timeColumns"] = ["time"]
+
+        target["rawSql"] = (
             "WITH latest AS (\n"
-            "  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n"
+            "  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units, window_end\n"
             "  FROM machine_metrics_5min\n"
             "  WHERE job_id LIKE 'JOB_%'\n"
-            "  ORDER BY machine_id, window_start DESC\n"
+            "  ORDER BY machine_id, window_end DESC\n"
             "), stage AS (\n"
-            "  SELECT CASE machine_id\n"
-            "           WHEN 'MACHINE_001' THEN 'Stage 1'\n"
-            "           WHEN 'MACHINE_002' THEN 'Stage 2'\n"
-            "           WHEN 'MACHINE_003' THEN 'Stage 3'\n"
-            "           WHEN 'MACHINE_004' THEN 'Stage 4'\n"
-            "           WHEN 'MACHINE_005' THEN 'Stage 5'\n"
-            "         END AS stage,\n"
-            "         produced_units AS processed,\n"
-            "         target_units   AS capacity\n"
+            "  SELECT produced_units AS processed, target_units AS capacity\n"
             "  FROM latest\n"
             "), agg AS (\n"
             "  SELECT MIN(processed) AS completed, MIN(capacity) AS planned\n"
             "  FROM stage\n"
-            ")\n"
-            "SELECT 'Pipeline Planned'    AS \"Metric\", planned    AS \"Value\" FROM agg\n"
+            "), ts AS (SELECT MAX(window_end) AS ts FROM latest)\n"
+            "SELECT (SELECT ts FROM ts) AS time, 'Planned Units'    AS Metric, planned    AS Value FROM agg\n"
             "UNION ALL\n"
-            "SELECT 'Pipeline Completed', completed FROM agg\n"
+            "SELECT (SELECT ts FROM ts), 'Completed Units', completed   FROM agg\n"
             "UNION ALL\n"
-            "SELECT 'Pipeline Efficiency', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1);"
+            "SELECT (SELECT ts FROM ts), 'Completion Rate (%)', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1) FROM agg;"
         )
+        p["transformations"] = []
+
+# Patch panel 16 (3-Level Dashboard -> Daily Snapshot)
+for p in panels:
+    if p.get("id") == 16:
+        p["title"] = "DAILY SNAPSHOT - Pipeline Overview"
+        tgt = p["targets"][0]
+        tgt["rawSql"] = (
+            "WITH latest AS (\n"
+            "  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n"
+            "  FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_end DESC\n"
+            "), agg AS (\n"
+            "  SELECT MIN(target_units) planned, MIN(produced_units) completed\n"
+            "  FROM latest\n"
+            ")\n"
+            "SELECT 'Planned Units'   AS Metric, planned   AS Value FROM agg\n"
+            "UNION ALL\n"
+            "SELECT 'Completed Units', completed        FROM agg\n"
+            "UNION ALL\n"
+            "SELECT 'Completion Rate (%)', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1) FROM agg;"
+        )
+        # remove overrides/mappings to avoid display errors
         p["transformations"] = []
 
 # Add Stage Breakdown table panel if not exists

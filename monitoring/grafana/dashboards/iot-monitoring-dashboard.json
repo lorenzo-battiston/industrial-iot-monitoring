@@ -854,8 +854,12 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n  FROM machine_metrics_5min\n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n), stage AS (\n  SELECT CASE machine_id\n           WHEN 'MACHINE_001' THEN 'Stage 1'\n           WHEN 'MACHINE_002' THEN 'Stage 2'\n           WHEN 'MACHINE_003' THEN 'Stage 3'\n           WHEN 'MACHINE_004' THEN 'Stage 4'\n           WHEN 'MACHINE_005' THEN 'Stage 5'\n         END AS stage,\n         produced_units AS processed,\n         target_units   AS capacity\n  FROM latest\n), agg AS (\n  SELECT MIN(processed) AS completed, MIN(capacity) AS planned\n  FROM stage\n)\nSELECT 'Pipeline Planned'    AS \"Metric\", planned    AS \"Value\" FROM agg\nUNION ALL\nSELECT 'Pipeline Completed', completed FROM agg\nUNION ALL\nSELECT 'Pipeline Efficiency', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1);",
-          "refId": "A"
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units, window_end\n  FROM machine_metrics_5min\n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_end DESC\n), stage AS (\n  SELECT produced_units AS processed, target_units AS capacity\n  FROM latest\n), agg AS (\n  SELECT MIN(processed) AS completed, MIN(capacity) AS planned\n  FROM stage\n), ts AS (SELECT MAX(window_end) AS ts FROM latest)\nSELECT (SELECT ts FROM ts) AS time, 'Planned Units'    AS Metric, planned    AS Value FROM agg\nUNION ALL\nSELECT (SELECT ts FROM ts), 'Completed Units', completed   FROM agg\nUNION ALL\nSELECT (SELECT ts FROM ts), 'Completion Rate (%)', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1) FROM agg;",
+          "refId": "A",
+          "timeColumn": "time",
+          "timeColumns": [
+            "time"
+          ]
         }
       ],
       "title": "PRODUCTION PIPELINE STATUS - Overall Efficiency",
@@ -928,12 +932,13 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "WITH latest_metrics AS (\n    SELECT DISTINCT ON (machine_id) machine_id, job_id, target_units, produced_units, job_progress\n    FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_start DESC\n),\nagg AS (\n    SELECT\n        SUM(target_units)    AS products_started,\n        SUM(produced_units)  AS products_completed,\n        ROUND(AVG(job_progress*100)::numeric,1) AS avg_machine_utilization\n    FROM latest_metrics\n)\nSELECT \n  'Products Started'        AS \"Metric\", products_started   AS \"Value\" FROM agg\nUNION ALL\nSELECT 'Products Completed', products_completed FROM agg\nUNION ALL\nSELECT 'Completion Rate', ROUND((products_completed*100.0/NULLIF(products_started,0))::numeric,1) FROM agg;",
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n  FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_end DESC\n), agg AS (\n  SELECT MIN(target_units) planned, MIN(produced_units) completed\n  FROM latest\n)\nSELECT 'Planned Units'   AS Metric, planned   AS Value FROM agg\nUNION ALL\nSELECT 'Completed Units', completed        FROM agg\nUNION ALL\nSELECT 'Completion Rate (%)', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1) FROM agg;",
           "refId": "A"
         }
       ],
-      "title": "PRODUCTION PERFORMANCE SUMMARY (3-Level Dashboard)",
-      "type": "table"
+      "title": "DAILY SNAPSHOT - Pipeline Overview",
+      "type": "table",
+      "transformations": []
     },
     {
       "datasource": "PostgreSQL IoT Analytics",
