@@ -228,7 +228,7 @@
             }
           },
           "mappings": [],
-          "max": 1,
+          "max": 100,
           "min": 0,
           "thresholds": {
             "mode": "absolute",
@@ -239,15 +239,15 @@
               },
               {
                 "color": "yellow",
-                "value": 0.7
+                "value": 70
               },
               {
                 "color": "green",
-                "value": 0.85
+                "value": 85
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -274,7 +274,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_oee as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use absolute time range to avoid timezone issues\nWHERE window_start >= NOW() - INTERVAL '4 hours'\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    (avg_oee * 100) as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -464,7 +464,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -483,11 +483,11 @@
                     },
                     {
                       "color": "yellow",
-                      "value": 0.7
+                      "value": 70
                     },
                     {
                       "color": "green",
-                      "value": 0.85
+                      "value": 85
                     }
                   ]
                 }
@@ -522,7 +522,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n    -- Get the most recent record for each machine, ignoring the dashboard time range.\n    DISTINCT ON (machine_id)\n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1) as avg_temperature,\n    ROUND(avg_speed::numeric, 1) as avg_speed,\n    ROUND(avg_oee::numeric, 3) as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM \n    machine_metrics_5min\nORDER BY \n    machine_id, window_start DESC;",
+          "rawSql": "SELECT\n    DISTINCT ON (machine_id)\n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1)          as avg_temperature,\n    ROUND(avg_speed::numeric, 1)                as avg_speed,\n    ROUND(avg_oee::numeric * 100, 1)            as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM machine_metrics_5min\nORDER BY machine_id, window_start DESC;",
           "refId": "A"
         }
       ],
@@ -564,7 +564,7 @@
               },
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "min",
@@ -584,7 +584,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -622,7 +622,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -671,7 +671,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  -- Enhanced Live Production Status with Job Progress\n  DISTINCT ON (m.machine_id) \n  m.machine_id,\n  m.job_id,\n  m.target_units,\n  m.produced_units,\n  -- Job completion percentage\n  ROUND(CAST(m.job_progress * 100 AS NUMERIC), 1) || '%' as \"Job Progress\",\n  -- Calculate remaining units\n  (m.target_units - m.produced_units) as \"Remaining Units\",\n  -- Enhanced scrap data\n  COALESCE(s.total_scrap, 0) as scrap_units,\n  COALESCE(s.total_good, 0) as good_units,\n  ROUND(CAST(COALESCE(s.avg_scrap_rate, 0) * 100 AS NUMERIC), 2) || '%' as scrap_rate,\n  ROUND(CAST(COALESCE(s.avg_quality_score, 0) AS NUMERIC), 3) as avg_quality_score,\n  COALESCE(s.scrap_incidents, 0) as defect_count,\n  m.operator_name,\n  m.shift,\n  -- Format last update nicely\n  TO_CHAR(m.window_start, 'HH24:MI:SS') as \"Last Update\"\nFROM \n  machine_metrics_5min m\nLEFT JOIN (\n  -- Get latest scrap summary per machine (last 4 hours)\n  SELECT \n    machine_id,\n    SUM(scrap_units) as total_scrap,\n    SUM(good_units) as total_good,\n    AVG(scrap_rate) as avg_scrap_rate,\n    AVG(quality_score) as avg_quality_score,\n    COUNT(*) as scrap_incidents\n  FROM production_scrap \n  WHERE timestamp >= NOW() - INTERVAL '4 hours'\n  GROUP BY machine_id\n) s ON m.machine_id = s.machine_id\n-- Filter to show only persistent jobs (new format)\nWHERE m.job_id LIKE 'JOB_%'\nORDER BY \n  m.machine_id, m.window_start DESC;",
+          "rawSql": "-- LIVE MACHINE STATUS - Machine Job Progress\nSELECT\n  DISTINCT ON (m.machine_id) \n  m.machine_id as \"Machine ID\",\n  -- Map machines to fixed production stages\n  CASE m.machine_id\n    WHEN 'MACHINE_001' THEN 'Processing'\n    WHEN 'MACHINE_002' THEN 'Assembly'\n    WHEN 'MACHINE_003' THEN 'Quality Check'\n    WHEN 'MACHINE_004' THEN 'Packaging'\n    WHEN 'MACHINE_005' THEN 'Shipping'\n    ELSE 'Unknown'\n  END as \"Current Stage\",\n  -- Job completion percentage\n  ROUND(CAST(m.job_progress * 100 AS NUMERIC), 1) || '%' as \"Job Progress\",\n  -- Performance indicator without emojis\n  CASE \n    WHEN m.job_progress >= 0.95 THEN 'Excellent'\n    WHEN m.job_progress >= 0.8 THEN 'Good'\n    WHEN m.job_progress >= 0.6 THEN 'Fair'\n    ELSE 'In Progress'\n  END as \"Status\",\n  m.target_units as \"Target Units\",\n  m.produced_units as \"Produced Units\",\n  (m.target_units - m.produced_units) as \"Remaining Units\",\n  -- Get scrap data from machine_metrics_5min\n  COALESCE(m.scrap_units, 0) as \"Scrap Units\",\n  ROUND(CAST(COALESCE(m.scrap_rate, 0) * 100 AS NUMERIC), 2) || '%' as \"Scrap Rate\",\n  m.operator_name as \"Operator\",\n  m.shift as \"Shift\",\n  TO_CHAR(m.window_start, 'HH24:MI:SS') as \"Last Update\"\nFROM \n  machine_metrics_5min m\nWHERE m.job_id LIKE 'JOB_%'\nORDER BY \n  m.machine_id, m.window_start DESC;",
           "refId": "A",
           "table": "machine_metrics_5min",
           "timeColumns": [
@@ -686,7 +686,7 @@
           ]
         }
       ],
-      "title": "Live Production Status (Current Shift)",
+      "title": "LIVE MACHINE STATUS - Machine Job Progress",
       "type": "table"
     },
     {
@@ -744,7 +744,7 @@
               }
             ]
           },
-          "unit": "percent"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -755,18 +755,6 @@
         "y": 24
       },
       "id": 15,
-      "options": {
-        "displayMode": "basic",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "showUnfilled": true
-      },
       "pluginVersion": "8.4.3",
       "targets": [
         {
@@ -774,11 +762,11 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "-- Product Completion Overview: Shows finished products based on bottleneck principle\n-- Products completed = minimum units produced across all machines\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\nproduct_metrics AS (\n  SELECT \n    -- Product completion based on bottleneck (minimum across machines)\n    MIN(produced_units) as completed_products,\n    ROUND(AVG(target_units)) as avg_target,\n    ROUND(CAST(MIN(produced_units) * 100.0 / AVG(target_units) AS NUMERIC), 1) as product_completion_rate\n  FROM current_jobs\n)\nSELECT \n  'Product Completion Rate' as metric,\n  product_completion_rate as value\nFROM product_metrics;",
+          "rawSql": "WITH latest_metrics AS (\n    SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n    FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_start DESC\n),\npipeline_kpis AS (\n    SELECT\n        MAX(CASE WHEN machine_id = 'MACHINE_001' THEN target_units END) AS products_planned,\n        MIN(produced_units) AS products_completed\n    FROM latest_metrics\n)\nSELECT 'Products Planned' AS \"Metric\", products_planned AS \"Value\" FROM pipeline_kpis\nUNION ALL\nSELECT 'Products Completed', products_completed FROM pipeline_kpis\nUNION ALL\nSELECT 'Completion Rate', ROUND(products_completed * 100.0 / NULLIF(products_planned, 0), 1) FROM pipeline_kpis;",
           "refId": "A"
         }
       ],
-      "title": "Product Completion Overview",
+      "title": "DAILY PRODUCTION DASHBOARD - Product Completion",
       "transformations": [
         {
           "id": "organize",
@@ -786,13 +774,13 @@
             "excludeByName": {},
             "indexByName": {},
             "renameByName": {
-              "metric": "Metric",
-              "value": "Percentage"
+              "Metric": "Metric",
+              "Value": "Value"
             }
           }
         }
       ],
-      "type": "bargauge"
+      "type": "table"
     },
     {
       "datasource": "PostgreSQL IoT Analytics",
@@ -848,8 +836,7 @@
                 "value": 80
               }
             ]
-          },
-          "unit": "percent"
+          }
         },
         "overrides": []
       },
@@ -860,18 +847,6 @@
         "y": 24
       },
       "id": 17,
-      "options": {
-        "displayMode": "basic",
-        "orientation": "horizontal",
-        "reduceOptions": {
-          "values": false,
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": ""
-        },
-        "showUnfilled": true
-      },
       "pluginVersion": "8.4.3",
       "targets": [
         {
@@ -879,11 +854,11 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "-- Pipeline Efficiency Overview: Shows overall production pipeline metrics\n-- Fixed logic to show realistic percentages (0-100%)\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\npipeline_metrics AS (\n  SELECT \n    -- Pipeline efficiency: total units produced vs total target\n    ROUND(CAST(SUM(produced_units) * 100.0 / SUM(target_units) AS NUMERIC), 1) as pipeline_efficiency,\n    -- Average machine utilization\n    ROUND(CAST(AVG(job_progress * 100) AS NUMERIC), 1) as avg_machine_utilization\n  FROM current_jobs\n)\nSELECT \n  'Pipeline Efficiency' as metric,\n  pipeline_efficiency as value\nFROM pipeline_metrics\nUNION ALL\nSELECT \n  'Average Machine Utilization' as metric,\n  avg_machine_utilization as value\nFROM pipeline_metrics;",
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units, job_progress\n  FROM machine_metrics_5min\n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n), agg AS (\n  SELECT SUM(produced_units) AS processed, SUM(target_units) AS target,\n         ROUND(AVG(job_progress*100)::numeric,1) AS avg_util\n  FROM latest\n)\nSELECT 'Pipeline Efficiency' AS \"Metric\", ROUND((processed*100.0/NULLIF(target,0))::numeric,1) AS \"Value\" FROM agg\nUNION ALL\nSELECT 'Average Machine Utilisation', avg_util FROM agg;",
           "refId": "A"
         }
       ],
-      "title": "Pipeline Efficiency Overview",
+      "title": "PRODUCTION PIPELINE STATUS - Overall Efficiency",
       "transformations": [
         {
           "id": "organize",
@@ -891,13 +866,13 @@
             "excludeByName": {},
             "indexByName": {},
             "renameByName": {
-              "metric": "Metric",
-              "value": "Percentage"
+              "Metric": "Metric",
+              "Value": "Value"
             }
           }
         }
       ],
-      "type": "bargauge"
+      "type": "table"
     },
     {
       "datasource": "PostgreSQL IoT Analytics",
@@ -965,11 +940,11 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "-- Production Summary: 3-Level Dashboard with corrected logic\n-- Shows Product, Pipeline, and Machine level metrics\nWITH current_jobs AS (\n  -- Get latest data per machine to avoid duplicates\n  SELECT DISTINCT ON (machine_id) \n    machine_id, job_id, target_units, produced_units, job_progress, window_start\n  FROM machine_metrics_5min \n  WHERE job_id LIKE 'JOB_%'\n  ORDER BY machine_id, window_start DESC\n),\nthree_level_metrics AS (\n  SELECT \n    -- Product Level: Based on bottleneck principle (minimum across machines)\n    MIN(produced_units) as completed_products,\n    ROUND(AVG(target_units)) as avg_target_per_machine,\n    -- Pipeline Level: Overall efficiency\n    ROUND(CAST(SUM(produced_units) * 100.0 / SUM(target_units) AS NUMERIC), 1) as pipeline_efficiency,\n    SUM(produced_units) as total_produced,\n    SUM(target_units) as total_target,\n    -- Machine Level: Average progress\n    ROUND(CAST(AVG(job_progress * 100) AS NUMERIC), 1) as avg_machine_progress,\n    COUNT(*) as active_machines\n  FROM current_jobs\n)\nSELECT \n  'Product Level' as \"Level\",\n  completed_products || ' products completed' as \"Status\",\n  ROUND(CAST(completed_products * 100.0 / avg_target_per_machine AS NUMERIC), 1) || '%' as \"Progress\",\n  CASE \n    WHEN completed_products * 100.0 / avg_target_per_machine >= 80 THEN 'Excellent'\n    WHEN completed_products * 100.0 / avg_target_per_machine >= 60 THEN 'Good'  \n    WHEN completed_products * 100.0 / avg_target_per_machine >= 40 THEN 'Fair'\n    ELSE 'Needs Attention'\n  END as \"Rating\"\nFROM three_level_metrics\nUNION ALL\nSELECT \n  'Pipeline Level',\n  total_produced || '/' || total_target || ' units processed',\n  pipeline_efficiency || '%',\n  CASE \n    WHEN pipeline_efficiency >= 85 THEN 'Excellent'\n    WHEN pipeline_efficiency >= 70 THEN 'Good'\n    WHEN pipeline_efficiency >= 55 THEN 'Fair'  \n    ELSE 'Needs Attention'\n  END\nFROM three_level_metrics\nUNION ALL\nSELECT \n  'Machine Level',\n  active_machines || ' machines active',\n  avg_machine_progress || '%',\n  CASE \n    WHEN avg_machine_progress >= 90 THEN 'Excellent'\n    WHEN avg_machine_progress >= 75 THEN 'Good'\n    WHEN avg_machine_progress >= 60 THEN 'Fair'\n    ELSE 'Needs Attention'\n  END\nFROM three_level_metrics;",
+          "rawSql": "WITH latest_metrics AS (\n    SELECT DISTINCT ON (machine_id) machine_id, job_id, target_units, produced_units, job_progress\n    FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_start DESC\n),\nagg AS (\n    SELECT\n        SUM(target_units)    AS products_started,\n        SUM(produced_units)  AS products_completed,\n        ROUND(AVG(job_progress*100)::numeric,1) AS avg_machine_utilization\n    FROM latest_metrics\n)\nSELECT \n  'Products Started'        AS \"Metric\", products_started   AS \"Value\" FROM agg\nUNION ALL\nSELECT 'Products Completed', products_completed FROM agg\nUNION ALL\nSELECT 'Completion Rate', ROUND((products_completed*100.0/NULLIF(products_started,0))::numeric,1) FROM agg;",
           "refId": "A"
         }
       ],
-      "title": "Production Performance Summary (3-Level Dashboard)",
+      "title": "PRODUCTION PERFORMANCE SUMMARY (3-Level Dashboard)",
       "type": "table"
     },
     {
@@ -1025,7 +1000,7 @@
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -1052,7 +1027,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    scrap_rate as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    CASE WHEN scrap_rate > 1 THEN scrap_rate/100 ELSE scrap_rate END as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -1183,6 +1158,28 @@
       ],
       "title": "Production Quality Overview (Good vs Scrap vs Defects)",
       "type": "timeseries"
+    },
+    {
+      "id": 18,
+      "title": "Pipeline Stage Breakdown",
+      "type": "table",
+      "datasource": "PostgreSQL IoT Analytics",
+      "gridPos": {
+        "h": 6,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "targets": [
+        {
+          "format": "table",
+          "rawQuery": true,
+          "group": [],
+          "metricColumn": "none",
+          "rawSql": "WITH latest AS (\n  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n        FROM machine_metrics_5min\n        WHERE job_id LIKE 'JOB_%'\n        ORDER BY machine_id, window_start DESC\n        )\nSELECT CASE machine_id\n         WHEN 'MACHINE_001' THEN 'Stage 1 (Processing)'\n         WHEN 'MACHINE_002' THEN 'Stage 2 (Assembly)'\n         WHEN 'MACHINE_003' THEN 'Stage 3 (Quality)'\n         WHEN 'MACHINE_004' THEN 'Stage 4 (Packaging)'\n         WHEN 'MACHINE_005' THEN 'Stage 5 (Shipping)'\n       END AS stage,\n       produced_units AS processed,\n       target_units   AS capacity,\n       ROUND(produced_units*100.0/NULLIF(target_units,0),1) AS pct\nFROM latest\nORDER BY stage;",
+          "refId": "A"
+        }
+      ]
     }
   ],
   "refresh": "5s",

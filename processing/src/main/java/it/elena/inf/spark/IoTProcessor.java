@@ -216,9 +216,9 @@ public class IoTProcessor {
                         first("location").as("location"),
                         first("firmware_version").as("firmware_version"),
                         first("job_id").as("job_id"),
-                        first("job_progress").as("job_progress"),
+                        last("job_progress").as("job_progress"),
                         first("target_units").as("target_units"),
-                        first("produced_units").as("produced_units"),
+                        last("produced_units").as("produced_units"),
                         first("order_start_time").as("order_start_time"),
                         first("elapsed_time_sec").as("elapsed_time_sec"),
                         // Fixed: Use LAST (most recent) total values instead of SUM of incremental
@@ -264,9 +264,9 @@ public class IoTProcessor {
                             col("produced_units"),
                             col("good_units"),
                             col("scrap_units"),
-                            // Calculate scrap_rate manually since it's no longer a generated column
-                            when(col("produced_units").gt(0), 
-                                col("scrap_units").cast("double").divide(col("produced_units").cast("double"))
+                            // Scrap rate: cumulative scrap divided by total cumulative units
+                            when(col("good_units").plus(col("scrap_units")).gt(0),
+                                col("scrap_units").cast("double").divide(col("good_units").plus(col("scrap_units")).cast("double"))
                             ).otherwise(0.0).as("scrap_rate"),
                             col("order_start_time"),
                             col("elapsed_time_sec"),
