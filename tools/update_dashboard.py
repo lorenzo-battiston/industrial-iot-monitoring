@@ -32,21 +32,18 @@ for p in panels:
         p["type"] = "table"
         p["title"] = "DAILY PRODUCTION DASHBOARD - Product Completion"
         p["targets"][0]["rawSql"] = (
-            "WITH latest_metrics AS (\n"
+            "WITH latest AS (\n"
             "    SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n"
             "    FROM machine_metrics_5min WHERE job_id LIKE 'JOB_%' ORDER BY machine_id, window_start DESC\n"
-            "),\n"
-            "pipeline_kpis AS (\n"
-            "    SELECT\n"
-            "        MAX(CASE WHEN machine_id = 'MACHINE_001' THEN target_units END) AS products_planned,\n"
-            "        MIN(produced_units) AS products_completed\n"
-            "    FROM latest_metrics\n"
+            ") , agg AS (\n"
+            "    SELECT SUM(target_units) AS planned, SUM(produced_units) AS completed\n"
+            "    FROM latest\n"
             ")\n"
-            "SELECT 'Products Planned' AS \"Metric\", products_planned AS \"Value\" FROM pipeline_kpis\n"
+            "SELECT 'Products Planned'   AS \"Metric\", planned   AS \"Value\" FROM agg\n"
             "UNION ALL\n"
-            "SELECT 'Products Completed', products_completed FROM pipeline_kpis\n"
+            "SELECT 'Products Completed', completed FROM agg\n"
             "UNION ALL\n"
-            "SELECT 'Completion Rate', ROUND(products_completed * 100.0 / NULLIF(products_planned, 0), 1) FROM pipeline_kpis;"
+            "SELECT 'Completion Rate (%)', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1) FROM agg;"
         )
 
 # convert panel 16 to table
@@ -83,19 +80,32 @@ for p in panels:
         p["title"] = "PRODUCTION PIPELINE STATUS - Overall Efficiency"
         p["targets"][0]["rawSql"] = (
             "WITH latest AS (\n"
-            "  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units, job_progress\n"
+            "  SELECT DISTINCT ON (machine_id) machine_id, target_units, produced_units\n"
             "  FROM machine_metrics_5min\n"
             "  WHERE job_id LIKE 'JOB_%'\n"
             "  ORDER BY machine_id, window_start DESC\n"
-            "), agg AS (\n"
-            "  SELECT SUM(produced_units) AS processed, SUM(target_units) AS target,\n"
-            "         ROUND(AVG(job_progress*100)::numeric,1) AS avg_util\n"
+            "), stage AS (\n"
+            "  SELECT CASE machine_id\n"
+            "           WHEN 'MACHINE_001' THEN 'Stage 1'\n"
+            "           WHEN 'MACHINE_002' THEN 'Stage 2'\n"
+            "           WHEN 'MACHINE_003' THEN 'Stage 3'\n"
+            "           WHEN 'MACHINE_004' THEN 'Stage 4'\n"
+            "           WHEN 'MACHINE_005' THEN 'Stage 5'\n"
+            "         END AS stage,\n"
+            "         produced_units AS processed,\n"
+            "         target_units   AS capacity\n"
             "  FROM latest\n"
+            "), agg AS (\n"
+            "  SELECT MIN(processed) AS completed, MIN(capacity) AS planned\n"
+            "  FROM stage\n"
             ")\n"
-            "SELECT 'Pipeline Efficiency' AS \"Metric\", ROUND((processed*100.0/NULLIF(target,0))::numeric,1) AS \"Value\" FROM agg\n"
+            "SELECT 'Pipeline Planned'    AS \"Metric\", planned    AS \"Value\" FROM agg\n"
             "UNION ALL\n"
-            "SELECT 'Average Machine Utilisation', avg_util FROM agg;"
+            "SELECT 'Pipeline Completed', completed FROM agg\n"
+            "UNION ALL\n"
+            "SELECT 'Pipeline Efficiency', ROUND((completed*100.0/NULLIF(planned,0))::numeric,1);"
         )
+        p["transformations"] = []
 
 # Add Stage Breakdown table panel if not exists
 stage_panel_id = 18
@@ -204,6 +214,24 @@ def update_machine_status_table():
             break
 
 update_machine_status_table()
+
+# --- NEW: Alarm count timeseries (ID 4) add machine_id metric ---
+def fix_alarm_panel():
+    for p in panels:
+        if p.get("id") == 4:
+            if p.get("targets") and isinstance(p["targets"], list):
+                p["targets"][0]["rawSql"] = (
+                    "SELECT \n"
+                    "    window_start AS time, \n"
+                    "    alarm_count  AS value, \n"
+                    "    machine_id   AS metric \n"
+                    "FROM machine_metrics_5min \n"
+                    "WHERE window_start >= NOW() - INTERVAL '4 hours'\n"
+                    "ORDER BY window_start"
+                )
+            break
+
+fix_alarm_panel()
 
 # remove options from converted tables
 for p in panels:

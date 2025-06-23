@@ -228,6 +228,20 @@ class MachineSimulator:
             # IDLE or MAINTENANCE
             new_speed = 0
         
+        # --- Determine current shift based on real clock (UTC) ---
+        current_hour = datetime.utcnow().hour  # use UTC to keep everything consistent with db timestamps
+        if 6 <= current_hour < 14:
+            calculated_shift = "Morning"
+        elif 14 <= current_hour < 22:
+            calculated_shift = "Afternoon"
+        else:
+            calculated_shift = "Night"
+
+        if machine.shift != calculated_shift:
+            # Shift changed – optionally rotate operator
+            machine.shift = calculated_shift
+            machine.operator_name = random.choice(["Alice Johnson", "Bob Smith", "Carol Davis", "David Wilson", "Eva Brown"])
+
         # Enhanced state transitions (Markov chain with ERROR state)
         state_rand = random.random()
         if machine.state == "RUNNING":
