@@ -202,8 +202,8 @@ SELECT
     SUM(scrap_units) as total_scrap,
     SUM(good_units) as total_good,
     SUM(total_produced_units) as total_produced,
-    ROUND(AVG(scrap_rate), 4) as avg_scrap_rate,
-    ROUND(AVG(quality_score), 3) as avg_quality_score,
+    ROUND(AVG(scrap_rate)::NUMERIC, 4) as avg_scrap_rate,
+    ROUND(AVG(quality_score)::NUMERIC, 3) as avg_quality_score,
     COUNT(*) as scrap_incidents,
     array_agg(DISTINCT scrap_category) as scrap_categories,
     array_agg(DISTINCT scrap_reason) as scrap_reasons

@@ -98,7 +98,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_temperature as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use absolute time range to avoid timezone issues\nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_temperature as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE $__timeFilter(window_start)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -185,7 +185,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_speed as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use absolute time range to avoid timezone issues\nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_speed as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE $__timeFilter(window_start)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -247,7 +247,7 @@
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -274,7 +274,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    avg_oee as value, \n    machine_id as metric \nFROM machine_metrics_5min \n-- Use absolute time range to avoid timezone issues\nWHERE window_start >= NOW() - INTERVAL '4 hours'\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    avg_oee as value, \n    machine_id as metric \nFROM machine_metrics_5min \nWHERE $__timeFilter(window_start)\n    AND avg_oee IS NOT NULL\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -369,7 +369,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    window_start as time, \n    alarm_count as \"Alarms\"\nFROM machine_metrics_5min \n-- Use absolute time range to avoid timezone issues\nWHERE window_start >= NOW() - INTERVAL '4 hours'\nORDER BY window_start",
+          "rawSql": "SELECT \n    window_start as time, \n    alarm_count as \"Alarms\"\nFROM machine_metrics_5min \nWHERE $__timeFilter(window_start)\nORDER BY window_start",
           "refId": "A"
         }
       ],
@@ -464,7 +464,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -522,7 +522,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n    -- Get the most recent record for each machine, ignoring the dashboard time range.\n    DISTINCT ON (machine_id)\n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1) as avg_temperature,\n    ROUND(avg_speed::numeric, 1) as avg_speed,\n    ROUND(avg_oee::numeric, 3) as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM \n    machine_metrics_5min\nORDER BY \n    machine_id, window_start DESC;",
+          "rawSql": "SELECT\n    -- Get the most recent record for each machine, ignoring the dashboard time range.\n    DISTINCT ON (machine_id)\n    machine_id,\n    window_start as \"Last Update\",\n    ROUND(avg_temperature::numeric, 1) as avg_temperature,\n    ROUND(avg_speed::numeric, 1) as avg_speed,\n    ROUND(avg_oee::numeric, 3) as avg_oee,\n    alarm_count,\n    operator_name,\n    shift,\n    location\nFROM \n    machine_metrics_5min\nWHERE $__timeFilter(window_start)\nORDER BY \n    machine_id, window_start DESC;",
           "refId": "A"
         }
       ],
@@ -564,7 +564,7 @@
               },
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "min",
@@ -584,7 +584,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -622,7 +622,7 @@
             "properties": [
               {
                 "id": "unit",
-                "value": "percentunit"
+                "value": "percent"
               },
               {
                 "id": "custom.cellOptions",
@@ -671,7 +671,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  -- Get the most recent record for each machine from metrics\n  DISTINCT ON (m.machine_id) \n  m.machine_id,\n  m.job_id,\n  m.target_units,\n  m.produced_units,\n  -- Get latest scrap data from production_scrap table\n  COALESCE(s.total_scrap, 0) as scrap_units,\n  COALESCE(s.total_good, 0) as good_units,\n  COALESCE(s.avg_scrap_rate, 0) as scrap_rate,\n  COALESCE(s.avg_quality_score, 0) as avg_quality_score,\n  COALESCE(s.scrap_incidents, 0) as defect_count,\n  m.operator_name,\n  m.shift,\n  m.window_start as \"Last Update\"\nFROM \n  machine_metrics_5min m\nLEFT JOIN (\n  -- Get latest scrap summary per machine\n  SELECT \n    machine_id,\n    SUM(scrap_units) as total_scrap,\n    SUM(good_units) as total_good,\n    AVG(scrap_rate) as avg_scrap_rate,\n    AVG(quality_score) as avg_quality_score,\n    COUNT(*) as scrap_incidents\n  FROM production_scrap \n  WHERE timestamp >= NOW() - INTERVAL '4 hours'\n  GROUP BY machine_id\n) s ON m.machine_id = s.machine_id\nORDER BY \n  m.machine_id, m.window_start DESC;",
+          "rawSql": "SELECT\n  -- Get the most recent record for each machine from metrics\n  DISTINCT ON (m.machine_id) \n  m.machine_id,\n  m.job_id,\n  m.target_units,\n  m.produced_units,\n  -- Get latest scrap data from production_scrap table\n  COALESCE(s.total_scrap, 0) as scrap_units,\n  COALESCE(s.total_good, 0) as good_units,\n  COALESCE(s.avg_scrap_rate, 0) as scrap_rate,\n  COALESCE(s.avg_quality_score, 0) as avg_quality_score,\n  COALESCE(s.scrap_incidents, 0) as defect_count,\n  m.operator_name,\n  m.shift,\n  m.window_start as \"Last Update\"\nFROM \n  machine_metrics_5min m\nLEFT JOIN (\n  -- Get latest scrap summary per machine\n  SELECT \n    machine_id,\n    SUM(scrap_units) as total_scrap,\n    SUM(good_units) as total_good,\n    AVG(scrap_rate) as avg_scrap_rate,\n    AVG(quality_score) as avg_quality_score,\n    COUNT(*) as scrap_incidents\n  FROM production_scrap \n  WHERE $__timeFilter(timestamp)\n  GROUP BY machine_id\n) s ON m.machine_id = s.machine_id\nWHERE $__timeFilter(window_start)\nORDER BY \n  m.machine_id, m.window_start DESC;",
           "refId": "A",
           "table": "machine_metrics_5min",
           "timeColumns": [
@@ -742,7 +742,7 @@
               }
             ]
           },
-          "unit": "percentunit"
+          "unit": "percent"
         },
         "overrides": []
       },
@@ -769,7 +769,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    AVG(scrap_rate) as value, \n    machine_id as metric \nFROM production_scrap \nWHERE timestamp >= NOW() - INTERVAL '4 hours'\nGROUP BY DATE_TRUNC('minute', timestamp), machine_id\nORDER BY time",
+          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    AVG(scrap_rate) as value, \n    machine_id as metric \nFROM production_scrap \nWHERE $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), machine_id\nORDER BY time",
           "refId": "A"
         }
       ],
@@ -894,7 +894,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\",\n    COUNT(*) as \"Defects\"\nFROM production_scrap \nWHERE timestamp >= NOW() - INTERVAL '4 hours'\nGROUP BY DATE_TRUNC('minute', timestamp)\nORDER BY time",
+          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\",\n    COUNT(*) as \"Defects\"\nFROM production_scrap \nWHERE $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp)\nORDER BY time",
           "refId": "A"
         }
       ],
