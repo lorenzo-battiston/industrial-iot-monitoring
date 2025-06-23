@@ -555,7 +555,7 @@
           {
             "matcher": {
               "id": "byName",
-              "options": "job_progress"
+              "options": "progress_percent"
             },
             "properties": [
               {
@@ -572,57 +572,7 @@
               },
               {
                 "id": "max",
-                "value": 1
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "scrap_rate"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "yellow",
-                      "value": 0.05
-                    },
-                    {
-                      "color": "red",
-                      "value": 0.1
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "avg_quality_score"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
+                "value": 100
               },
               {
                 "id": "custom.cellOptions",
@@ -641,13 +591,55 @@
                     },
                     {
                       "color": "yellow",
-                      "value": 0.8
+                      "value": 50
                     },
                     {
                       "color": "green",
-                      "value": 0.9
+                      "value": 80
                     }
                   ]
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "good_units"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "green"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "scrap_units"
+            },
+            "properties": [
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "type": "color-background"
+                }
+              },
+              {
+                "id": "color",
+                "value": {
+                  "mode": "fixed",
+                  "fixedColor": "red"
                 }
               }
             ]
@@ -671,7 +663,7 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT\n  -- Get the most recent record for each machine from metrics\n  DISTINCT ON (m.machine_id) \n  m.machine_id,\n  m.job_id,\n  m.target_units,\n  m.produced_units,\n  -- Get latest scrap data from production_scrap table\n  COALESCE(s.total_scrap, 0) as scrap_units,\n  COALESCE(s.total_good, 0) as good_units,\n  COALESCE(s.avg_scrap_rate, 0) as scrap_rate,\n  COALESCE(s.avg_quality_score, 0) as avg_quality_score,\n  COALESCE(s.scrap_incidents, 0) as defect_count,\n  m.operator_name,\n  -- m.shift removed (not needed in dashboard),\n  m.window_start as \"Last Update\"\nFROM \n  machine_metrics_5min m\nLEFT JOIN (\n  -- Get latest scrap summary per machine\n  SELECT \n    machine_id,\n    SUM(scrap_units) as total_scrap,\n    SUM(good_units) as total_good,\n    AVG(scrap_rate) as avg_scrap_rate,\n    AVG(quality_score) as avg_quality_score,\n    COUNT(*) as scrap_incidents\n  FROM production_scrap \n  WHERE $__timeFilter(timestamp)\n  GROUP BY machine_id\n) s ON m.machine_id = s.machine_id\nWHERE $__timeFilter(window_start)\nORDER BY \n  m.machine_id, m.window_start DESC;",
+          "rawSql": "SELECT\n  DISTINCT ON (m.machine_id) \n  m.machine_id,\n  m.target_units,\n  m.produced_units,\n  COALESCE(s.total_scrap, 0) as scrap_units,\n  COALESCE(s.total_good, 0) as good_units,\n  -- Progress calculation: good_units / target_units\n  CASE \n    WHEN m.target_units > 0 THEN \n      ROUND((COALESCE(s.total_good, 0)::numeric / m.target_units::numeric) * 100, 1)\n    ELSE 0 \n  END as progress_percent,\n  m.window_start as \"Last Update\"\nFROM \n  machine_metrics_5min m\nLEFT JOIN (\n  SELECT \n    machine_id,\n    SUM(scrap_units) as total_scrap,\n    SUM(good_units) as total_good\n  FROM production_scrap \n  WHERE $__timeFilter(timestamp)\n  GROUP BY machine_id\n) s ON m.machine_id = s.machine_id\nWHERE $__timeFilter(window_start)\nORDER BY \n  m.machine_id, m.window_start DESC;",
           "refId": "A",
           "table": "machine_metrics_5min",
           "timeColumns": [
@@ -853,21 +845,6 @@
                 }
               }
             ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Defects"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "mode": "fixed",
-                  "fixedColor": "orange"
-                }
-              }
-            ]
           }
         ]
       },
@@ -894,11 +871,11 @@
           "group": [],
           "metricColumn": "none",
           "rawQuery": true,
-          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\",\n    COUNT(*) as \"Defects\"\nFROM production_scrap \nWHERE $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp)\nORDER BY time",
+          "rawSql": "SELECT \n    DATE_TRUNC('minute', timestamp) as time, \n    SUM(good_units) as \"Good Units\",\n    SUM(scrap_units) as \"Scrap Units\"\nFROM production_scrap \nWHERE $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp)\nORDER BY time",
           "refId": "A"
         }
       ],
-      "title": "Production Quality Overview (Good vs Scrap vs Defects)",
+      "title": "Production Quality Overview (Good vs Scrap)",
       "type": "timeseries"
     }
   ],
